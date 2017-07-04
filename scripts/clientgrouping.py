@@ -60,7 +60,7 @@ def get_asn_group(asn):
     return distinct_ip_list
 
 
-def get_vectors(t, duration=30000, fmt=None):
+def get_vectors(t, duration=30000, mask=32, fmt=None):
     print "getting window"
     window = vv.get_window(t, duration, domains)
     print "converting window to dict"
@@ -69,8 +69,10 @@ def get_vectors(t, duration=30000, fmt=None):
     indl = list()
     # list of indices
     print "creating array"
+    fmtmask = str(ipp.ip2int(mask))
     for probe in dd:
-        X.append(np.array(vv.dict_to_vector(dd[probe])))
+        vec = np.array(vv.dict_to_vector(dd[probe])) & fmtmask
+        X.append(vec)
         indl.append(dd[probe]['ind'])
     return np.array(X)
 
@@ -84,8 +86,8 @@ def get_dbscan_groups(t, duration=30000, fmt=None):
     return (labels, indl)
 
 
-def get_hamming_distance(t, duration=30000, fmt=None):
-    X = get_vectors(t, duration, fmt)
+def get_hamming_distance(t, duration=30000, mask=32, fmt=None):
+    X = get_vectors(t, duration, mask, fmt)
     Z = linkage(X, 'average', 'hamming')
     c, coph_dists = cophenet(Z, pdist(X))
     print " Cophenetic Correlation Coefficient: "+str(c)
