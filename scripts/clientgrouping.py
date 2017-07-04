@@ -7,6 +7,11 @@ import numpy as np
 import veracity_vector as vv
 from sklearn.cluster import DBSCAN
 from sklearn import metrics
+from matplotlib import pyplot as plt
+from scipy.cluster.hierarchy import dendrogram, linkage
+
+from scipy.cluster.hierarchy import cophenet
+from scipy.spatial.distance import pdist
 
 ##################################################################
 #                           LOGGING
@@ -34,9 +39,9 @@ domains = df.getlines(basedir+'state/sites.csv')
 # database setup
 mclient = MongoClient()
 db = mclient.veracity
-coll = db.ripe_meas30002_may2017
+coll = db.m30002_may17
 
-ag_coll = db.ripe_meas30002_answergroups
+ag = db.answergroups
 
 ##################################################################
 #                           CODE
@@ -55,7 +60,7 @@ def get_asn_group(asn):
     return distinct_ip_list
 
 
-def get_answer_groups(t, duration=30000, fmt=None):
+def get_vectors(t, duration=30000, fmt=None):
     print "getting window"
     window = vv.get_window(t, duration, domains[:3])
     print "converting window to dict"
@@ -67,10 +72,20 @@ def get_answer_groups(t, duration=30000, fmt=None):
     for probe in dd:
         X.append(np.array(vv.dict_to_vector(dd[probe])))
         indl.append(dd[probe]['ind'])
-    X = np.array(X)
+    return np.array(X)
+
+
+def get_dbscan_groups(t, duration=30000, fmt=None):
+    X = get_vectors(t, duration, fmt)
     logger.warning("performing db scan...")
     dbs = DBSCAN(eps=255).fit(X)
     labels = dbs.labels_
     print "labels: "+str(set(labels))
     return (labels, indl)
 
+
+def get_hamming_distance(t, duration=30000, fmt=None):
+    X = get_vectors(t, duration, fmt)
+    Z = linkage(X, 'complete', 'hamming')
+    c, coph_dists = cophenet(Z, pdist(X))
+    print c

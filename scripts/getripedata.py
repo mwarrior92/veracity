@@ -114,15 +114,17 @@ def append_db(fnum):
         # add additional info to probe
         # try cache first
         logger.debug("checking cache...")
-        tmp = probe_cache.find({"mydoc.probe_id": parsed["probe_id"]}).limit(1)
-        if tmp.count() > 0:
+        tmp = list(probe_cache.find({"probe_id": parsed["probe_id"]}).limit(1))
+        if len(tmp) > 0:
             logger.debug("probe info cache hit")
-            parsed['country'] = tmp[0]['mydoc']['country']
-            if 'asn_v4' in tmp[0]['mydoc']:
-                parsed['asn_v4'] = tmp[0]['mydoc']['asn_v4']
-            if 'asn_v6' in tmp[0]['mydoc']:
-                parsed['asn_v6'] = tmp[0]['mydoc']['asn_v6']
+            parsed['country'] = tmp[0]['country']
+            if 'asn_v4' in tmp[0]:
+                parsed['asn_v4'] = tmp[0]['asn_v4']
+            if 'asn_v6' in tmp[0]:
+                parsed['asn_v6'] = tmp[0]['asn_v6']
         else:
+            print "missed on: "+str(parsed["probe_id"])
+            print "probe info db size: "+str(len(probe_cache.distinct("probe_id")))
             logger.debug("probe info cache miss")
             # if cache miss, do query to get probe info
             b, probe_info = ra.get_probe_info(parsed['probe_id'])
@@ -132,6 +134,7 @@ def append_db(fnum):
                     parsed['asn_v4'] = probe_info['asn_v4']
                 if 'asn_v6' in probe_info:
                     parsed['asn_v6'] = probe_info['asn_v6']
+            print "inserting..."
             probe_cache.insert_one(parsed)
         coll.insert_one(parsed)
         if ind % 500 == 0:
