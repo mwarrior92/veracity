@@ -62,7 +62,7 @@ def get_asn_group(asn):
 
 def get_vectors(t, duration=30000, fmt=None):
     print "getting window"
-    window = vv.get_window(t, duration, domains[:3])
+    window = vv.get_window(t, duration, domains)
     print "converting window to dict"
     dd = vv.window_to_dict(window)
     X = list()
@@ -86,6 +86,16 @@ def get_dbscan_groups(t, duration=30000, fmt=None):
 
 def get_hamming_distance(t, duration=30000, fmt=None):
     X = get_vectors(t, duration, fmt)
-    Z = linkage(X, 'complete', 'hamming')
+    Z = linkage(X, 'average', 'hamming')
     c, coph_dists = cophenet(Z, pdist(X))
-    print c
+    print " Cophenetic Correlation Coefficient: "+str(c)
+    plt.figure(figsize=(25, 10))
+    plt.xlabel('sample index')
+    plt.ylabel('distance')
+    dendrogram(
+        Z,
+        leaf_rotation=90.,  # rotates the x axis labels
+        leaf_font_size=8.,  # font size for the x axis labels
+    )
+    plt.savefig('hamming.png', bbox_inches='tight')
+

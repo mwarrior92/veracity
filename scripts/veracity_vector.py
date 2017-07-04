@@ -101,7 +101,7 @@ def window_to_dict(window):
 def dict_to_vector(d, fmt=None):
     vector = list()
     if fmt is None:
-        fmt = domains[:3]
+        fmt = domains
     for domain in fmt:
         if domain in d:
             vector.append(d[domain])
