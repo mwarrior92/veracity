@@ -5,11 +5,11 @@ from netaddr import IPNetwork as CIDR
 from netaddr import IPAddress as IP
 import numpy as np
 import veracity_vector as vv
+from warriorpy.net_tools import ipparsing as ipp
 from sklearn.cluster import DBSCAN
 from sklearn import metrics
 from matplotlib import pyplot as plt
 from scipy.cluster.hierarchy import dendrogram, linkage
-
 from scipy.cluster.hierarchy import cophenet
 from scipy.spatial.distance import pdist
 
@@ -33,6 +33,7 @@ logger.debug(__name__+"logger loaded")
 basedir = df.getdir(__file__)+'../'
 rawdirlist = df.getlines(basedir+'state/datapaths.list')
 datafiles = df.listfiles(basedir+rawdirlist[0], fullpath=True)
+plotsdir = df.rightdir(basedir+"plots/")
 
 domains = df.getlines(basedir+'state/sites.csv')
 
@@ -60,16 +61,21 @@ def get_asn_group(asn):
     return distinct_ip_list
 
 
-def get_vectors(t, duration=30000, mask=32, fmt=None):
+def get_vectors(t, duration=30000, mask=32, fmt=None, country=None):
     print "getting window"
-    window = vv.get_window(t, duration, domains)
+    if fmt is None:
+        window = vv.get_window(t, duration, domains, country)
+    elif type(fmt) is int:
+        window = vv.get_window(t, duration, domains[:fmt], country)
+    else:
+        window = vv.get_window(t, duration, fmt, country)
     print "converting window to dict"
     dd = vv.window_to_dict(window)
     X = list()
     indl = list()
     # list of indices
     print "creating array"
-    fmtmask = str(ipp.ip2int(mask))
+    fmtmask = ipp.make_v4_prefix_mask(mask)
     for probe in dd:
         vec = np.array(vv.dict_to_vector(dd[probe])) & fmtmask
         X.append(vec)
@@ -77,8 +83,8 @@ def get_vectors(t, duration=30000, mask=32, fmt=None):
     return np.array(X)
 
 
-def get_dbscan_groups(t, duration=30000, fmt=None):
-    X = get_vectors(t, duration, fmt)
+def get_dbscan_groups(t, duration=30000, mask=32, fmt=None):
+    X = get_vectors(t, duration, mask, fmt)
     logger.warning("performing db scan...")
     dbs = DBSCAN(eps=255).fit(X)
     labels = dbs.labels_
@@ -86,12 +92,13 @@ def get_dbscan_groups(t, duration=30000, fmt=None):
     return (labels, indl)
 
 
-def get_hamming_distance(t, duration=30000, mask=32, fmt=None):
-    X = get_vectors(t, duration, mask, fmt)
-    Z = linkage(X, 'average', 'hamming')
+def get_hamming_distance(t, duration=30000, mask=32, fmt=None,
+        method='complete', country=None):
+    X = get_vectors(t, duration, mask, fmt, country)
+    Z = linkage(X, method, 'hamming')
     c, coph_dists = cophenet(Z, pdist(X))
     print " Cophenetic Correlation Coefficient: "+str(c)
-    plt.figure(figsize=(25, 10))
+    plt.figure(figsize=(15, 10))
     plt.xlabel('sample index')
     plt.ylabel('distance')
     dendrogram(
@@ -99,5 +106,5 @@ def get_hamming_distance(t, duration=30000, mask=32, fmt=None):
         leaf_rotation=90.,  # rotates the x axis labels
         leaf_font_size=8.,  # font size for the x axis labels
     )
-    plt.savefig('hamming.png', bbox_inches='tight')
+    plt.savefig(plotsdir+'hamming.pdf', bbox_inches='tight')
 

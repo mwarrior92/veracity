@@ -55,29 +55,32 @@ probe_cache = db.probe_data
 
 # Probes happen to query certain domains multiple times back-to-back for
 # some reason; in these cases, I will take only their first query
-def get_window(start_time, duration, domain_set):
-    res = data.aggregate([
-                        {"$match": {
-                            "time": {
-                                    "$gte": start_time,
-                                    "$lt": start_time+duration
-                                    },
-                            "domain": {"$in": domain_set},
-                            "ipv4.answer_ip_list": {"$exists": True}
-                            }
+def get_window(start_time, duration, domain_set, country=None):
+    cmd = [
+            {"$match": {
+                "time": {
+                        "$gte": start_time,
+                        "$lt": start_time+duration
                         },
-                        {"$sort": {"ind": 1}},
-                        {"$group": {
-                            "_id": {
-                                "probe_ip": "$probe_ip",
-                                "probe_id": "$probe_id",
-                                "domain": "$domain"
-                                },
-                            "answers": {"$first": "$ipv4.answer_ip_list"},
-                            "ind": {"$first": "$ind"}
-                            },
-                        }
-                    ], allowDiskUse=True)
+                "domain": {"$in": domain_set},
+                "ipv4.answer_ip_list": {"$exists": True}
+                }
+            },
+            {"$sort": {"ind": 1}},
+            {"$group": {
+                "_id": {
+                    "probe_ip": "$probe_ip",
+                    "probe_id": "$probe_id",
+                    "domain": "$domain"
+                    },
+                "answers": {"$first": "$ipv4.answer_ip_list"},
+                "ind": {"$first": "$ind"}
+                },
+            }
+        ]
+    if country is not None:
+        cmd[0]["$match"]["country"] = country
+    res = data.aggregate(cmd, allowDiskUse=True)
     return res
 
 
@@ -102,6 +105,8 @@ def dict_to_vector(d, fmt=None):
     vector = list()
     if fmt is None:
         fmt = domains
+    elif type(fmt) is int:
+        fmt = domains[:fmt]
     for domain in fmt:
         if domain in d:
             vector.append(d[domain])
