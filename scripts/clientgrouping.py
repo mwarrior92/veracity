@@ -61,7 +61,7 @@ def get_asn_group(asn):
     return distinct_ip_list
 
 
-def get_vectors(t, duration=30000, mask=32, fmt=None, country=None):
+def get_ipstructs(t, duration=30000, mask=32, fmt=None, country=None):
     print "getting window"
     if fmt is None:
         window = vv.get_window(t, duration, domains, country)
@@ -76,27 +76,27 @@ def get_vectors(t, duration=30000, mask=32, fmt=None, country=None):
     # list of indices
     print "creating array"
     fmtmask = ipp.make_v4_prefix_mask(mask)
+    wd = vv.get_weighting(t, duration, mask, fmt, country)
     for probe in dd:
-        vec = np.array(vv.dict_to_vector(dd[probe])) & fmtmask
+        vec = vv.dict_to_ipstruct(dd[probe], fmtmask, weight=wd)
         X.append(vec)
         indl.append(dd[probe]['ind'])
     return np.array(X)
 
 
-def get_dbscan_groups(t, duration=30000, mask=32, fmt=None):
-    X = get_vectors(t, duration, mask, fmt)
-    logger.warning("performing db scan...")
-    dbs = DBSCAN(eps=255).fit(X)
-    labels = dbs.labels_
-    print "labels: "+str(set(labels))
-    return (labels, indl)
-
-
 def get_hamming_distance(t, duration=30000, mask=32, fmt=None,
-        method='complete', country=None):
-    X = get_vectors(t, duration, mask, fmt, country)
-    Z = linkage(X, method, 'hamming')
-    c, coph_dists = cophenet(Z, pdist(X))
+        method="average", country=None):
+    X = get_ipstructs(t, duration, mask, fmt, country)
+    dm = np.zeros((len(X) * (len(X) - 1)) // 2, dtype=np.double)
+    k = 0
+    for i in xrange(0, len(X)-1):
+        for j in xrange(i + 1, len(X)):
+            dm[k] = 1.0 - vv.distance_metric(X[i], X[j])
+            k = k + 1
+            if k % 1000 == 0:
+                print k
+    Z = linkage(dm, method)
+    c, coph_dists = cophenet(Z, dm)
     print " Cophenetic Correlation Coefficient: "+str(c)
     plt.figure(figsize=(15, 10))
     plt.xlabel('sample index')
