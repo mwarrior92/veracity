@@ -94,9 +94,9 @@ def window_to_dict(window):
     d = defaultdict(lambda: defaultdict(list))
     for doc in window:
         if doc['_id']['probe_ip'] not in d:
-            d[doc['_id']['probe_ip']]['ind'] = doc['ind']
+            d[doc['_id']['probe_ip']]['ind'].append(doc['ind'])
         if len(doc['answers']) > 0:
-            d[doc['_id']['probe_ip']][doc['_id']['domain']].append(doc['answers'][0])
+            d[doc['_id']['probe_ip']][doc['_id']['domain']] += doc['answers']
     return d
 
 
@@ -118,7 +118,7 @@ def dict_to_ipstruct(d, fmt=None, oddballs=False, weight=None, mask=32):
                 ipm = ip & fmtmask
                 ipstr = ipp.int2ip(ipm)
                 if (ipm != 0 and IP(ipstr+"/32").iptype() == "PUBLIC") or oddballs:
-                    vector[ipm] += weight[domain]
+                    vector[ipm] += weight[domain]/float(len(d[domain]))
     return vector
 
 

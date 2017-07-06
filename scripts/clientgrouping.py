@@ -93,7 +93,7 @@ def get_hamming_distance(t, duration=30000, mask=32, fmt=None,
         for j in xrange(i + 1, len(X)):
             dm[k] = 1.0 - vv.distance_metric(X[i], X[j])
             k = k + 1
-            if k % 1000 == 0:
+            if k % 10000 == 0:
                 print k
     Z = linkage(dm, method)
     c, coph_dists = cophenet(Z, dm)
