@@ -42,7 +42,7 @@ mclient = MongoClient()
 db = mclient.veracity
 coll = db.m30002_may17
 
-ag = db.answergroups
+pd = db.probe_data
 
 ##################################################################
 #                           CODE
@@ -61,14 +61,14 @@ def get_asn_group(asn):
     return distinct_ip_list
 
 
-def get_ipstructs(t, duration=30000, mask=32, fmt=None, country=None):
+def get_ipstructs(t, duration=30000, mask=32, fmt=None, country=None, exp=4,
+        oddballs=False):
     print "getting window"
     if fmt is None:
-        window = vv.get_window(t, duration, domains, country)
+        fmt = domains
     elif type(fmt) is int:
-        window = vv.get_window(t, duration, domains[:fmt], country)
-    else:
-        window = vv.get_window(t, duration, fmt, country)
+        fmt = domains[-fmt:]
+    window = vv.get_window(t, duration, fmt, country)
     print "converting window to dict"
     dd = vv.window_to_dict(window)
     X = list()
@@ -77,16 +77,25 @@ def get_ipstructs(t, duration=30000, mask=32, fmt=None, country=None):
     print "creating array"
     fmtmask = ipp.make_v4_prefix_mask(mask)
     wd = vv.get_weighting(t, duration, mask, fmt, country)
-    for probe in dd:
-        vec = vv.dict_to_ipstruct(dd[probe], fmtmask, weight=wd)
+    Y = list()
+    for i, probe in enumerate(dd):
+        # if we're missing answers, skip this for now; NOTE: we need to
+        # reintroduce these probes later once the clustering algorithm has been
+        # validated
+        if len(set(dd[probe]).intersection(set(fmt))) < len(fmt):
+            continue
+        vec, vec2 = vv.dict_to_ipstruct(dd[probe], mask=mask, weight=wd,
+                exp=exp, oddballs=oddballs, fmt=fmt)
         X.append(vec)
-        indl.append(dd[probe]['ind'])
-    return np.array(X)
+        Y.append(vec2)
+        indl.append({"ip": probe, "ipstr": ipp.int2ip(probe), "ind":dd[probe]['ind']})
+    return np.array(X), indl, dd, Y
 
 
 def get_hamming_distance(t, duration=30000, mask=32, fmt=None,
-        method="average", country=None):
-    X = get_ipstructs(t, duration, mask, fmt, country)
+        method="average", country=None, p=0, exp=4, oddballs=False, fname='hamming.pdf'):
+    X, inds, dd, Y = get_ipstructs(t, duration, mask, fmt, country, exp,
+            oddballs)
     dm = np.zeros((len(X) * (len(X) - 1)) // 2, dtype=np.double)
     k = 0
     for i in xrange(0, len(X)-1):
@@ -101,10 +110,12 @@ def get_hamming_distance(t, duration=30000, mask=32, fmt=None,
     plt.figure(figsize=(15, 10))
     plt.xlabel('sample index')
     plt.ylabel('distance')
-    dendrogram(
+    d = dendrogram(
         Z,
         leaf_rotation=90.,  # rotates the x axis labels
         leaf_font_size=8.,  # font size for the x axis labels
+        truncate_mode="lastp",
+        p=p,
     )
-    plt.savefig(plotsdir+'hamming.pdf', bbox_inches='tight')
-
+    plt.savefig(plotsdir+fname, bbox_inches='tight')
+    return Z, d, X, dm, inds, Y

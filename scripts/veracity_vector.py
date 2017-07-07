@@ -4,6 +4,7 @@ import numpy as np
 from pymongo import MongoClient
 from IPy import IP
 from collections import defaultdict
+import math
 
 """
 class for answer vectors
@@ -100,7 +101,7 @@ def window_to_dict(window):
     return d
 
 
-def dict_to_ipstruct(d, fmt=None, oddballs=False, weight=None, mask=32):
+def dict_to_ipstruct(d, fmt=None, oddballs=False, weight=None, mask=32, exp=4):
     '''
     NOTE: each time an ip is seen, its respective domain's weight is added to
     its entry in the vector; in other words, the more often an IP is seen, the
@@ -108,18 +109,20 @@ def dict_to_ipstruct(d, fmt=None, oddballs=False, weight=None, mask=32):
     '''
     fmtmask = ipp.make_v4_prefix_mask(mask)
     vector = defaultdict(int)
+    vector2 = defaultdict(set)
     if fmt is None:
         fmt = domains
     elif type(fmt) is int:
-        fmt = domains[:fmt]
+        fmt = domains[-fmt:]
     for domain in fmt:
         if domain in d:
             for ip in d[domain]:
                 ipm = ip & fmtmask
                 ipstr = ipp.int2ip(ipm)
                 if (ipm != 0 and IP(ipstr+"/32").iptype() == "PUBLIC") or oddballs:
-                    vector[ipm] += weight[domain]/float(len(d[domain]))
-    return vector
+                    vector[ipm] += weight[domain]/(float(exp**len(d[domain])))
+                    vector2[ipm].add(domain)
+    return vector, vector2
 
 
 # generate vector from dict of {domain: answer} entries
@@ -128,7 +131,7 @@ def dict_to_vector(d, fmt=None):
     if fmt is None:
         fmt = domains
     elif type(fmt) is int:
-        fmt = domains[:fmt]
+        fmt = domains[-fmt:]
     for domain in fmt:
         if domain in d:
             vector.append(d[domain][0])
@@ -151,6 +154,8 @@ def distance_metric(a, b):
     the same IP for a and b.
     '''
     totalval = sum([a[z] for z in a]+[b[z] for z in b])
+    if totalval == 0:
+        return 0
     overlap = set(a.keys()).intersection(set(b.keys()))
     aweight = [a[z] for z in a if z in overlap]
     bweight = [b[z] for z in b if z in overlap]
@@ -162,7 +167,7 @@ def get_vectors(t, duration=30000, mask=32, fmt=None, country=None):
     if fmt is None:
         window = get_window(t, duration, domains, country)
     elif type(fmt) is int:
-        window = get_window(t, duration, domains[:fmt], country)
+        window = get_window(t, duration, domains[-fmt:], country)
     else:
         window = get_window(t, duration, fmt, country)
     print "converting window to dict"
@@ -187,7 +192,7 @@ def get_answer_space_dict(t, duration=30000, mask=32, fmt=None, country=None):
     if fmt is None:
         fmt = domains
     elif type(fmt) is int:
-        fmt = domains[:fmt]
+        fmt = domains[-fmt:]
     for vec in X:
         for ind, dom in enumerate(fmt):
             anssets[dom].add(ipp.int2ip(vec[ind]))
@@ -223,6 +228,6 @@ def get_weighting(t, duration=30000, mask=32, fmt=None, country=None):
 
     wd = dict()
     for item in sl:
-        wd[item[0]] = float(item[1])
+        wd[item[0]] = 1.0 / math.log(float(item[1])+51, 50)
     return wd
 
