@@ -1,5 +1,6 @@
 from warriorpy.shorthand import diriofile as df
 from warriorpy.net_tools import ipparsing as ipp
+from warriorpy.net_tools import dns_tools as dt
 import numpy as np
 from pymongo import MongoClient
 from IPy import IP
@@ -14,8 +15,8 @@ purpose:
 
 assumptions:
 
-    FIRST ANSWER: I only work with the first answer from each answer set (i.e. the answer that is
-    actually being used
+    ENTIRE ANSWER SETS: I user the entire answer set from each query (as opposed
+    to only the first answer, for example)
 
     TIME BLOCKS: It looks like the the probes complete a cycle through the set of domains for
     meas. 30002 every ~30000 seconds, which is between 8-9 hours. I therefor assume that any
@@ -50,7 +51,7 @@ domains = df.getlines(basedir+'state/sites.csv')
 mclient = MongoClient()
 db = mclient.veracity
 data = db.m30002_may17
-probe_cache = db.probe_data
+pdata = db.probe_data
 
 ##################################################################
 #                           CODE
@@ -59,14 +60,13 @@ probe_cache = db.probe_data
 
 # Probes happen to query certain domains multiple times back-to-back for
 # some reason; in these cases, I will take only their first query
-def get_window(start_time, duration, domain_set, country=None):
+def get_window(start_time, duration, domain_set=None, country_set=None):
     cmd = [
             {"$match": {
                 "time": {
                         "$gte": start_time,
                         "$lt": start_time+duration
                         },
-                "domain": {"$in": domain_set},
                 "ipv4.answer_ip_list": {"$exists": True}
                 }
             },
@@ -82,152 +82,311 @@ def get_window(start_time, duration, domain_set, country=None):
                 },
             }
         ]
-    if country is not None:
-        cmd[0]["$match"]["country"] = country
+    if country_set is not None:
+        cmd[0]["$match"]["country"] = {"$in": country_set}
+    if domain_set is not None:
+        cmd[0]["$match"]["domain"] = {"$in": domain_set}
     res = data.aggregate(cmd, allowDiskUse=True)
     return res
 
 
 # convert from set of raw documents from single time block to dictionary of
-# domains vs answer-sets. If there is more than one answer for a domain, I take
-# the first answer
-def window_to_dict(window):
+# domains vs answer-sets. If there is more than one answer for a domain
+def window_to_dicts(window):
     d = defaultdict(lambda: defaultdict(list))
-    for doc in window:
-        if doc['_id']['probe_ip'] not in d:
-            d[doc['_id']['probe_ip']]['ind'].append(doc['ind'])
+    for doc in list(window):
         if len(doc['answers']) > 0:
+            d[doc['_id']['probe_ip']]['inds_'+doc['_id']['domain']].append(doc['ind'])
             d[doc['_id']['probe_ip']][doc['_id']['domain']] += doc['answers']
     return d
 
 
-def dict_to_ipstruct(d, fmt=None, oddballs=False, weight=None, mask=32, exp=4):
-    '''
-    NOTE: each time an ip is seen, its respective domain's weight is added to
-    its entry in the vector; in other words, the more often an IP is seen, the
-    more important it is
-    '''
-    fmtmask = ipp.make_v4_prefix_mask(mask)
-    vector = defaultdict(int)
-    vector2 = defaultdict(set)
+def transform_fmt(fmt, doms=None):
+    if doms is None:
+        doms = domains
+
     if fmt is None:
-        fmt = domains
+        fmt = doms
     elif type(fmt) is int:
-        fmt = domains[-fmt:]
-    for domain in fmt:
-        if domain in d:
-            for ip in d[domain]:
-                ipm = ip & fmtmask
-                ipstr = ipp.int2ip(ipm)
-                if (ipm != 0 and IP(ipstr+"/32").iptype() == "PUBLIC") or oddballs:
-                    vector[ipm] += weight[domain]/(float(exp**len(d[domain])))
-                    vector2[ipm].add(domain)
-    return vector, vector2
+        if fmt > 0:
+            fmt = doms[:fmt]
+        elif fmt < 0:
+            fmt = doms[fmt:]
+    return fmt
 
 
-# generate vector from dict of {domain: answer} entries
-def dict_to_vector(d, fmt=None):
-    vector = list()
-    if fmt is None:
-        fmt = domains
-    elif type(fmt) is int:
-        fmt = domains[-fmt:]
-    for domain in fmt:
-        if domain in d:
-            vector.append(d[domain][0])
+def dicts_to_svl(dd, fmt=None, mask=32, oddballs=False):
+    '''
+    convert dicts to list of smartvecs
+    '''
+    fmt = transform_fmt(fmt)
+    svl = list()
+    for probe_ip in dd:
+        if probe_ip == "":
+            continue
+        tmp = smartvec(dd[probe_ip], probe_ip, fmt,
+            mask, oddballs)
+        if len(set(tmp.vec).symmetric_difference(set(fmt))) < min([3, len(fmt)]):
+            # if vec isn't missing anything, keep it
+            svl.append(tmp)
+    return svl
+
+
+def country_svl(svl):
+    csvl = defaultdict(list) # {country: svl}
+    for sv in svl:
+        csvl[sv.get_country()].append(sv)
+    return csvl
+
+
+def asn_svl(svl):
+    asvl = defaultdict(list) # {asn: svl}
+    for sv in svl:
+        asvl[sv.get_asn()].append(sv)
+    return asvl
+
+
+def subnet_svl(svl, mask=24):
+    ssvl = defaultdict(list) # {subnet: svl}
+    for sv in svl:
+        ssvl[sv.get_subnet(mask)].append(sv)
+    return ssvl
+
+
+def owner_svl(svl):
+    osvl = defaultdict(list) # {owner: svl}
+    for sv in svl:
+        osvl[sv.get_owner()].append(sv)
+    return osvl
+
+
+def prefix_svl(svl):
+    psvl = defaultdict(list) # {prefix_v4: svl}
+    for sv in svl:
+        psvl[sv.get_prefix()].append(sv)
+    return psvl
+
+
+class smartvec:
+    def __init__(self, d, probe_ip, fmt=None, mask=32, oddballs=False):
+        '''
+        d is a dictionary with indices stored in key 'inds_'+domain and answer lists stored
+        in keys of their respective domain (e.g. 'google.com.')
+        '''
+        self.vec = defaultdict(lambda: defaultdict(float)) # {domain: {ans: cum. weight}}
+        fmt = transform_fmt(fmt)
+        fmtmask = ipp.make_v4_prefix_mask(mask)
+        for dom in fmt:
+            if dom in d:
+                query_count = float(len(d['inds_'+dom]))
+                answer_count = float(len(d[dom]))
+                for ip in d[dom]:
+                    ipm = ip & fmtmask
+                    ipstr = ipp.int2ip(ipm)
+                    if IP(ipstr+"/32").iptype() == "PUBLIC" or oddballs:
+                        self.vec[dom][ipm] += query_count / answer_count
+        self.ip = probe_ip
+
+
+    def __repr__(self):
+        return "smartvec(ip="+ipp.int2ip(self.ip)+")"
+
+
+    def __str__(self):
+        s = ""
+        for dom in self.vec:
+            s += dom+": "+", ".join([ipp.int2ip(ip) for ip in self.vec[dom]])+"\n\n"
+        return s
+
+
+    def get_ip(self):
+        return ipp.int2ip(self.ip)
+
+
+    def get_answers(self, dom):
+        if dom in self.vec:
+            return [ipp.int2ip(ip) for ip in self.vec[dom]]
+        return None
+
+
+    def get_subnet(self, mask):
+        fmtmask = ipp.make_v4_prefix_mask(mask)
+        return ipp.int2ip(self.ip & fmtmask)
+
+
+    def get_probe_info(self):
+        tmp = list(pdata.find({'probe_ip': self.ip}).limit(1))
+        if len(tmp) > 0:
+            return tmp[0]
         else:
-            vector.append(0)
-    return vector
+            return None
 
 
-def weight_vector(vec, wvec):
-    pass
+    def get_country(self):
+        tmp = self.get_probe_info()
+        if tmp is not None:
+            return tmp['country']
+        else:
+            return None
 
 
-def distance_metric(a, b):
-    '''
-    (a n b) / (b u a), where each entry is weighted using a tuple (ip, weight)
-
-    NOTE: since every value contributes to sums twice (once from a and once from
-    b), the weights are effectively half-weights. This is to account for the
-    fact that different domains - or different numbers of domains - may contribute
-    the same IP for a and b.
-    '''
-    totalval = sum([a[z] for z in a]+[b[z] for z in b])
-    if totalval == 0:
-        return 0
-    overlap = set(a.keys()).intersection(set(b.keys()))
-    aweight = [a[z] for z in a if z in overlap]
-    bweight = [b[z] for z in b if z in overlap]
-    return float(sum(aweight+bweight))/float(totalval)
+    def get_asn(self):
+        tmp = self.get_probe_info()
+        if tmp is not None:
+            return tmp['asn_v4']
+        else:
+            return None
 
 
-def get_vectors(t, duration=30000, mask=32, fmt=None, country=None):
-    print "getting window"
-    if fmt is None:
-        window = get_window(t, duration, domains, country)
-    elif type(fmt) is int:
-        window = get_window(t, duration, domains[-fmt:], country)
-    else:
-        window = get_window(t, duration, fmt, country)
-    print "converting window to dict"
-    dd = window_to_dict(window)
-    X = list()
-    indl = list()
-    # list of indices
-    print "creating array"
-    fmtmask = ipp.make_v4_prefix_mask(mask)
+    def get_id(self):
+        tmp = self.get_probe_info()
+        if tmp is not None:
+            return tmp['probe_id']
+        else:
+            return None
+
+
+    def get_prefix(self):
+        tmp = self.get_probe_info()
+        if tmp is not None:
+            return tmp['prefix_v4']
+        else:
+            return None
+
+
+    def get_owner(self):
+        return dt.get_owner_name(ipp.int2ip(self.ip))
+
+
+    def sees_private_self(self):
+        tmp = self.get_probe_info()
+        if tmp is not None:
+            ip = tmp['ipv4']['perceived_ip']
+            if IP(ipp.int2ip(ip)+"/32").iptype() == "PUBLIC":
+                return False
+        return True
+
+
+    def sees_private_ldns(self):
+        tmp = self.get_probe_info()
+        if tmp is not None:
+            ip = tmp['ipv4']['perceived_ldns']
+            if IP(ipp.int2ip(ip)+"/32").iptype() == "PUBLIC":
+                return False
+        return True
+
+
+    def __len__(self):
+        return len(self.vec)
+
+
+    def __iter__(self):
+        for item in dict.__iter__(self.vec):
+            yield item
+
+
+    def __contains__(self, item):
+        return item in self.vec
+
+
+    def __getitem__(self, item):
+        return self.vec[item]
+
+
+def closeness(a, b):
+        '''
+        (a n b) / (b u a), where each entry is weighted using a tuple (ip, weight)
+
+        NOTE: since every value contributes to sums twice (once from a and once from
+        b), the weights are effectively half-weights. This is to account for the
+        fact that different domains - or different numbers of domains - may contribute
+        the same IP for a and b.
+
+        NOTE: each domain is normalized, so domains with a lot of IPs per query
+        response won't skew the results
+        '''
+        n = 0.0 # numerator
+        d = float(len(a)) # denominator
+        for dom in [j for j in a if j in b]:
+            domtotal = sum([a[dom][z] for z in a[dom]]+[b[dom][z] for z in b[dom]])
+            overlap = set(a[dom]).intersection(set(b[dom]))
+            aweight = [a[dom][z] for z in a[dom] if z in overlap]
+            bweight = [b[dom][z] for z in b[dom] if z in overlap]
+            n += sum(aweight+bweight)/domtotal
+        return n/d
+
+
+def get_dist_list(svl):
+    # NOTE: omits self comparisons and associative (redundant) comparisons;
+    # can't use get_dist_list output with linkage
+    dist_list = list()
+    checked = set()
+    for ii, i in enumerate(svl):
+        checked.add(ii)
+        for jj, j in enumerate(svl):
+            if jj not in checked:
+                dist_list.append(1.0-closeness(i, j))
+    return dist_list
+
+
+def avg_dist(dist_list):
+    return np.mean(dist_list)
+
+
+def max_dist(dist_list):
+    return max(dist_list)
+
+
+def min_dist(dist_list):
+    return min(dist_list)
+
+
+def median_dist(dist_list):
+    return np.median(dist_list)
+
+
+def get_answer_space_dict(dd, fmt=None):
+        anssets = defaultdict(set)
+        fmt = transform_fmt(fmt)
+        for probe in dd:
+            for dom in fmt:
+                if dom in dd[probe]:
+                    anssets[dom] |= set(dd[probe][dom])
+        return anssets
+
+
+def get_probe_space(dd, fmt=None):
+    ps = defaultdict(int)
+    fmt = transform_fmt(fmt)
     for probe in dd:
-        vec = np.array(dict_to_vector(dd[probe])) & fmtmask
-        X.append(vec)
-        indl.append(dd[probe]['ind'])
-    return np.array(X)
+        for dom in fmt:
+            if dom in dd[probe]:
+                ps[dom] += 1
+    print ps
+    return ps
 
 
+def get_weighting(anssets):
+        '''
+        use output from get_answer_space_dict() as input for this
+        '''
+        sl = [(z,len(anssets[z])) for z in anssets]
+
+        wd = dict()
+        for item in sl:
+            wd[item[0]] = 1.0 /float(item[1]) #math.log(float(item[1])+2, 2)
+        return wd
 
 
-def get_answer_space_dict(t, duration=30000, mask=32, fmt=None, country=None):
-    X = get_vectors(t, duration, mask, fmt, country)
-    anssets = defaultdict(set)
-    if fmt is None:
-        fmt = domains
-    elif type(fmt) is int:
-        fmt = domains[-fmt:]
-    for vec in X:
-        for ind, dom in enumerate(fmt):
-            anssets[dom].add(ipp.int2ip(vec[ind]))
-    return anssets
+def sort_sites(anssets):
+        '''
+        use output from get_answer_space_dict() as input for this
+        '''
+        spacelist = [(z,len(anssets[z])) for z in anssets]
 
+        sl = sorted(spacelist, key=lambda z: z[1])
+        for val in sl:
+            print val
+        sl = [z[0] for z in sl]
 
-def sort_sites(t, duration=30000, mask=32, fmt=None, country=None):
-    anssets = get_answer_space_dict(t, duration, mask, fmt, country)
-    spacelist = list()
-    for dom in anssets:
-        spacelist.append(len(anssets[dom]))
-
-    outlist = [(z,len(anssets[z])) for z in anssets.keys()]
-
-    sl = sorted(outlist, key=lambda z: z[1])
-    sl = [z[0] for z in sl]
-
-    slcol = df.list2col(sl)
-    df.overwrite(basedir+'state/sites.csv', slcol)
-    df.overwrite(basedir+'state/site_sizes.csv', df.list2col(outlist))
-    for val in sl:
-        print val
-    return outlist
-
-
-def get_weighting(t, duration=30000, mask=32, fmt=None, country=None):
-    anssets = get_answer_space_dict(t, duration, mask, fmt, country)
-    spacelist = list()
-    for dom in anssets:
-        spacelist.append(len(anssets[dom]))
-
-    sl = [(z,len(anssets[z])) for z in anssets.keys()]
-
-    wd = dict()
-    for item in sl:
-        wd[item[0]] = 1.0 / math.log(float(item[1])+51, 50)
-    return wd
-
+        return sl

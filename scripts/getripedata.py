@@ -144,12 +144,31 @@ def append_db(fnum):
     logger.info("finished with fnum "+str(fnum))
     return
 
-for index, datafile in enumerate(datafiles):
-    logger.info("datafile: "+datafile)
-    finished = False
-    while not finished:
-        try:
-            append_db(index)
-            print finished
-        except Exception as e:
-            logger.error(e)
+
+if __name__ == "__main__":
+    for index, datafile in enumerate(datafiles):
+        logger.info("datafile: "+datafile)
+        finished = False
+        while not finished:
+            try:
+                append_db(index)
+                print finished
+            except Exception as e:
+                logger.error(e)
+
+
+def update_probe_info(fields):
+    cache = list(probe_cache.find())
+    for probe in cache:
+        if len(set(probe).symmetric_difference(set(fields))) > 0:
+            changed = dict()
+            b, info = ra.get_probe_info(probe['probe_id'])
+            if b:
+                for field in fields:
+                    if field in info:
+                        changed[field] = info[field]
+            if len(changed) > 0:
+                probe_cache.update(
+                        {'probe_id': probe['probe_id']},
+                        {"$set": changed})
+    return
