@@ -61,6 +61,16 @@ pdata = db.probe_data
 # Probes happen to query certain domains multiple times back-to-back for
 # some reason; in these cases, I will take only their first query
 def get_window(start_time, duration, domain_set=None, country_set=None):
+    '''
+    :param start_time: int indicating the earliest query the window should include
+    :param duration: int indication the span of time covered by the window,
+        in seconds
+    :param domain_set: the list of domains the window should include queries for.
+        If None, then all domains will be included
+    :param country_set: the set of countries the window should include queries from.
+        If None, then all countries will be inluded
+    :return: dictionary, where each entry is a mongodb doc containing a DNS query
+    '''
     cmd = [
             {"$match": {
                 "time": {
@@ -93,6 +103,10 @@ def get_window(start_time, duration, domain_set=None, country_set=None):
 # convert from set of raw documents from single time block to dictionary of
 # domains vs answer-sets. If there is more than one answer for a domain
 def window_to_dicts(window):
+    '''
+    :window: dict, where each entry is a mongodb doc containing a DNS query
+    :return: dict: {probe_ip: {domain: answers}, {inds_domain: [ind list]}}
+    '''
     d = defaultdict(lambda: defaultdict(list))
     for doc in list(window):
         if len(doc['answers']) > 0:
@@ -102,6 +116,14 @@ def window_to_dicts(window):
 
 
 def transform_fmt(fmt, doms=None):
+    '''
+    :param fmt: None, int, or list of domains. If None, will assign list of
+        domains read from file; if int n > 0, will assign first n domains from list
+        read from file; if int n < 0, will assign last n domains read from file; if
+        list of domains, will use directly (ignoring list of domains read from file)
+    :param doms: list of all domains; if None, reads from file
+    :return: list of domains
+    '''
     if doms is None:
         doms = domains
 
@@ -117,6 +139,13 @@ def transform_fmt(fmt, doms=None):
 
 def dicts_to_svl(dd, fmt=None, mask=32, oddballs=False):
     '''
+    :param dd:  output from window_to_dicts()
+    :param fmt: see transform fmt
+    :param mask: int, prefix mask to use over domain IPs
+    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
+        False, will only include public IPs
+    :return: list of smartvecs
+
     convert dicts to list of smartvecs
     '''
     fmt = transform_fmt(fmt)
@@ -133,6 +162,10 @@ def dicts_to_svl(dd, fmt=None, mask=32, oddballs=False):
 
 
 def country_svl(svl):
+    '''
+    :param svl: list of smartvecs
+    :return: dict: {country: list of smartvecs}
+    '''
     csvl = defaultdict(list) # {country: svl}
     for sv in svl:
         csvl[sv.get_country()].append(sv)
@@ -140,6 +173,10 @@ def country_svl(svl):
 
 
 def asn_svl(svl):
+    '''
+    :param svl: list of smartvecs
+    :return: dict: {asn: list of smartvecs}
+    '''
     asvl = defaultdict(list) # {asn: svl}
     for sv in svl:
         asvl[sv.get_asn()].append(sv)
@@ -147,6 +184,12 @@ def asn_svl(svl):
 
 
 def subnet_svl(svl, mask=24):
+    '''
+    :param svl: list of smartvecs
+    :param mask: subnets used will be of format /mask
+    :return: dict: {subnet: list of smartvecs}, where 'subnet' refers to a /mask
+        prefix
+    '''
     ssvl = defaultdict(list) # {subnet: svl}
     for sv in svl:
         ssvl[sv.get_subnet(mask)].append(sv)
@@ -154,6 +197,10 @@ def subnet_svl(svl, mask=24):
 
 
 def owner_svl(svl):
+    '''
+    :param svl: list of smartvecs
+    :return: dict: {owner: list of smartvecs}
+    '''
     osvl = defaultdict(list) # {owner: svl}
     for sv in svl:
         osvl[sv.get_owner()].append(sv)
@@ -161,6 +208,11 @@ def owner_svl(svl):
 
 
 def prefix_svl(svl):
+    '''
+    :param svl: list of smartvecs
+    :return: dict: {prefix: list of smartvecs}, where prefix is the size of the
+        block known to registries
+    '''
     psvl = defaultdict(list) # {prefix_v4: svl}
     for sv in svl:
         psvl[sv.get_prefix()].append(sv)
@@ -170,8 +222,18 @@ def prefix_svl(svl):
 class smartvec:
     def __init__(self, d, probe_ip, fmt=None, mask=32, oddballs=False):
         '''
-        d is a dictionary with indices stored in key 'inds_'+domain and answer lists stored
-        in keys of their respective domain (e.g. 'google.com.')
+        :param d: a single subdict d from the dict dd output from
+            window_to_dicts()
+        :param fmt: see transform fmt
+        :param mask: prefix mask t use on domain IPs
+        :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
+            False, will only include public IPs
+
+        container for a set of query results from a single probe
+
+        NOTE: mask is only applied to domain IPs (not the probe's IP)
+        NOTE: after mask is applied, original IPs are not preserved; for
+            comparisons, separate sv's should be constructed
         '''
         self.vec = defaultdict(lambda: defaultdict(float)) # {domain: {ans: cum. weight}}
         fmt = transform_fmt(fmt)
@@ -277,6 +339,17 @@ class smartvec:
         return True
 
 
+    def get_real_ldns(self):
+        if sees_private_ldns:
+            pass
+        else:
+            pass
+
+
+    def uses_ecs(self):
+        pass
+
+
     def __len__(self):
         return len(self.vec)
 
@@ -296,6 +369,10 @@ class smartvec:
 
 def closeness(a, b):
         '''
+        :param a: smartvec
+        :param b: smartvec
+        :return: closeness between a and b
+
         (a n b) / (b u a), where each entry is weighted using a tuple (ip, weight)
 
         NOTE: since every value contributes to sums twice (once from a and once from
@@ -318,7 +395,12 @@ def closeness(a, b):
 
 
 def get_dist_list(svl):
-    # NOTE: omits self comparisons and associative (redundant) comparisons;
+    '''
+    :param svl: list of smartvecs
+    :return: list of pairwise closeness measures between input smartvecs
+
+    NOTE: omits self comparisons and associative (redundant) comparisons;
+    '''
     dist_list = list()
     for i in xrange(0, len(svl)-1):
         for j in xrange(i+1, len(svl)):
@@ -326,33 +408,40 @@ def get_dist_list(svl):
     return dist_list
 
 
-def avg_dist(dist_list):
-    return np.mean(dist_list)
+def get_domains(dd):
+    '''
+    :param dd: output from window_to_dicts()
+    :return: list of domains
 
-
-def max_dist(dist_list):
-    return max(dist_list)
-
-
-def min_dist(dist_list):
-    return min(dist_list)
-
-
-def median_dist(dist_list):
-    return np.median(dist_list)
+    obtains list of domains from window of queries being observed
+    '''
+    doms = set()
+    for probe in dd:
+        doms += set([z for z in dd[probe] if 'inds_' not in dd[probe][z]])
+    return list(doms)
 
 
 def get_answer_space_dict(dd, fmt=None):
-        anssets = defaultdict(set)
-        fmt = transform_fmt(fmt)
-        for probe in dd:
-            for dom in fmt:
-                if dom in dd[probe]:
-                    anssets[dom] |= set(dd[probe][dom])
-        return anssets
+    '''
+    :param dd: output from window_to_dicts()
+    :param fmt: see transform fmt
+    :return: dict {domain: number of IPs observed}
+    '''
+    anssets = defaultdict(set)
+    fmt = transform_fmt(fmt)
+    for probe in dd:
+        for dom in fmt:
+            if dom in dd[probe]:
+                anssets[dom] |= set(dd[probe][dom])
+    return anssets
 
 
 def get_probe_space(dd, fmt=None):
+    '''
+    :param dd: output from window_to_dicts()
+    :param fmt: see transform fmt
+    :return: dict {domain: number of probes to query domain}
+    '''
     ps = defaultdict(int)
     fmt = transform_fmt(fmt)
     for probe in dd:
@@ -364,35 +453,52 @@ def get_probe_space(dd, fmt=None):
 
 
 def get_weighting(anssets):
-        '''
-        use output from get_answer_space_dict() as input for this
-        '''
-        sl = [(z,len(anssets[z])) for z in anssets]
+    '''
+    :param anssets: output from get_answer_space_dict()
+    :return: dict {domain: weight}
+    '''
+    sl = [(z,len(anssets[z])) for z in anssets]
 
-        wd = dict()
-        for item in sl:
-            wd[item[0]] = 1.0 /float(item[1]) #math.log(float(item[1])+2, 2)
-        return wd
+    wd = dict()
+    for item in sl:
+        wd[item[0]] = 1.0 /float(item[1]) #math.log(float(item[1])+2, 2)
+    return wd
 
 
 def sort_sites(anssets):
-        '''
-        use output from get_answer_space_dict() as input for this
-        '''
-        spacelist = [(z,len(anssets[z])) for z in anssets]
+    '''
+    :param anssets: output from get_answer_space_dict()
+    :return: list of domains, sorted by number of IPs observed from each
+        domain
+    '''
+    spacelist = [(z,len(anssets[z])) for z in anssets]
 
-        sl = sorted(spacelist, key=lambda z: z[1])
-        for val in sl:
-            print val
-        sl = [z[0] for z in sl]
+    sl = sorted(spacelist, key=lambda z: z[1])
+    for val in sl:
+        print val
+    sl = [z[0] for z in sl]
 
-        return sl
+    return sl
 
 
 def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
         oddballs=False):
+    '''
+    :param start_time: int indicating the earliest query the window should include
+    :param duration: int indication the span of time covered by the window,
+        in seconds
+    :param mask: int, prefix mask to use over domain IPs
+    :param fmt: see transform fmt
+    :param country_set: the set of countries the window should include queries from.
+        If None, then all countries will be inluded
+    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
+        False, will only include public IPs
+    :return: list of smartvecs
+    '''
     window = get_window(t, duration, country_set=country_set)
     dd = window_to_dicts(window)
+    global domains
+    domains = get_domains()
     anssets = get_answer_space_dict(dd)
     sl = sort_sites(anssets)
     fmt = transform_fmt(fmt, sl)
@@ -416,6 +522,9 @@ def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
 
 
 class closeness_cache:
+    '''
+    cache so that closeness calculations don't have to be repeated
+    '''
     def __init__(self):
         self.cache = dict()
         self.tmp_item = None

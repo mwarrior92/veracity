@@ -29,7 +29,7 @@ datafiles = df.listfiles(basedir+rawdirlist[0], fullpath=True)
 # database setup
 mclient = MongoClient()
 db = mclient.veracity
-coll = db.m30002_may17
+coll = db.m30002_may17_full
 probe_cache = db.probe_data
 
 ##################################################################
@@ -90,6 +90,7 @@ def append_db(fnum):
     lr = linereader.linereader(datafiles[fnum])
 
     print "pos is: " + str(pos)
+    sincelastmiss = 0
     while lr.gotmore:
         strline = lr.getnext()
         pos += 1
@@ -116,6 +117,7 @@ def append_db(fnum):
         logger.debug("checking cache...")
         tmp = list(probe_cache.find({"probe_id": parsed["probe_id"]}).limit(1))
         if len(tmp) > 0:
+            sincelastmiss += 1
             logger.debug("probe info cache hit")
             parsed['country'] = tmp[0]['country']
             if 'asn_v4' in tmp[0]:
@@ -123,7 +125,9 @@ def append_db(fnum):
             if 'asn_v6' in tmp[0]:
                 parsed['asn_v6'] = tmp[0]['asn_v6']
         else:
-            print "missed on: "+str(parsed["probe_id"])
+            print "missed on: "+str(parsed["probe_id"])+"; "\
+            +str(sincelastmiss)+" since last incident"
+            sincelastmiss = 0
             print "probe info db size: "+str(len(probe_cache.distinct("probe_id")))
             logger.debug("probe info cache miss")
             # if cache miss, do query to get probe info
@@ -134,6 +138,12 @@ def append_db(fnum):
                     parsed['asn_v4'] = probe_info['asn_v4']
                 if 'asn_v6' in probe_info:
                     parsed['asn_v6'] = probe_info['asn_v6']
+                if 'geometry' in probe_info:
+                    parsed['geometry'] = probe_info['geometry']
+                if 'prefix_v4' in probe_info:
+                    parsed['prefix_v4'] = probe_info['prefix_v4']
+                if 'prefix_v6' in probe_info:
+                    parsed['prefix_v6'] = probe_info['prefix_v6']
             print "inserting..."
             probe_cache.insert_one(parsed)
         coll.insert_one(parsed)
@@ -147,6 +157,7 @@ def append_db(fnum):
 
 if __name__ == "__main__":
     for index, datafile in enumerate(datafiles):
+        print datafile
         logger.info("datafile: "+datafile)
         finished = False
         while not finished:

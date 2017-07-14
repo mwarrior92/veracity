@@ -1,10 +1,7 @@
 from warriorpy.shorthand import diriofile as df
-from pymongo import MongoClient
-import json
 import numpy as np
 import veracity_vector as vv
 from warriorpy.net_tools import ipparsing as ipp
-from matplotlib import pyplot as plt
 import networkx as nx
 from collections import defaultdict
 
@@ -104,32 +101,6 @@ def ccount_vs_mc(svl, mcl, ccache=None):
     return X, Y
 
 
-def plot_csize_vs_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
-        oddballs=True, fname=""):
-
-    print "getting svl"
-    svl, fmt = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
-    print "calling csize vs mc"
-    x, y = csize_vs_mc(svl, np.arange(.45, .65, .01))
-    plt.figure(figsize=(15, 10))
-    plt.xlabel('minimum closeness')
-    plt.ylabel('size of biggest component')
-    plt.plot(x,y)
-    plt.savefig(plotsdir+'components_'+fname+'.pdf', bbox_inches='tight')
-
-
-def plot_ccount_vs_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
-        oddballs=True, fname=""):
-
-    svl, fmt = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
-    x, y = ccount_vs_mc(svl, np.arange(.45, .48, .01))
-    plt.figure(figsize=(15, 10))
-    plt.xlabel('minimum closeness')
-    plt.ylabel('# of components')
-    plt.plot(x,y)
-    plt.savefig(plotsdir+'components_'+fname+'.pdf', bbox_inches='tight')
-
-
 def get_ip_sets(svl):
     ipsl = list() # ip set list
     dompairs = defaultdict(set)
@@ -185,39 +156,3 @@ def remove_degree_below(G, dd, min_degree):
         G.remove_nodes_from(dd[d])
 
 
-def inv_hist(t, duration=30000, mask=32, fmt=None, country_set=None,
-        oddballs=True, fname="", thresh=.35):
-
-    logger.info("getting svl...")
-    svl, fmt = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
-    logger.info("getting ipsl...")
-    ipsl, dompairs = get_ip_sets(svl)
-    logger.info("getting pairing counts...")
-    pc = get_pairing_counts(ipsl)
-    ipcount = len(pc)
-    logger.info("building inv. graph...")
-    G = build_inv_graph(pc)
-    #dd = nodes_by_degree(G)
-    #degree = int(.39*ipcount)
-    #remove_degree_above(G, dd, degree)
-    remove_far_edges(G, thresh)
-    dd = nodes_by_degree(G)
-    remove_degree_below(G, dd, 1)
-    weights = [e[2] for e in G.edges_iter(data='weight')]
-    cc = list(nx.connected_components(G))
-    #print cc
-    for c in cc:
-        print "****************************"
-        print str(len(c))
-        print set([dom for ip in c for dom in dompairs[ip]])
-        weights = [w for a,b,w in G.edges_iter(c, data='weight')]
-        print "median weight: "+str(np.median(weights))
-        print "average weight: "+str(np.mean(weights))
-    print "num connected comps: "+str(len(cc))
-    print "size of connected comps: "+str(np.median([len(z) for z in cc]))
-
-    plt.figure(figsize=(15, 10))
-    plt.xlabel('pairwise closeness')
-    plt.ylabel('# of pairs (servers)')
-    plt.hist(weights, bins=100)
-    plt.savefig(plotsdir+fname+'inv_hist.pdf', bbox_inches='tight')
