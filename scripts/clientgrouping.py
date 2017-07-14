@@ -86,10 +86,10 @@ def country_full_closeness_hist(t, duration=30000, mask=32, fmt=None,
         dist_list = vv.get_dist_list(csvl[c])
         s = ""
         s += "--------"+c+"---------\n"
-        s += "average:  "+str(vv.avg_dist(dist_list))+"\n"
-        s += "max:      "+str(vv.max_dist(dist_list))+"\n"
-        s += "min:      "+str(vv.min_dist(dist_list))+"\n"
-        s += "median:      "+str(vv.median_dist(dist_list))+"\n"
+        s += "average:  "+str(np.mean(dist_list))+"\n"
+        s += "max:      "+str(max(dist_list))+"\n"
+        s += "min:      "+str(min(dist_list))+"\n"
+        s += "median:      "+str(np.median(dist_list))+"\n"
         print s
 
         plt.figure(figsize=(15, 10))
@@ -116,13 +116,13 @@ def asn_full_closeness_hist(t, duration=30000, mask=32, fmt=None,
         if a is None:
             print "found a 'None' in asvl..."
             continue
-        dist_list = vv.get_dist_list(asvl[a])
+        cl = vv.get_cl(asvl[a])
         s = ""
         s += "--------"+str(a)+"---------\n"
-        s += "average:  "+str(vv.avg_dist(dist_list))+"\n"
-        s += "max:      "+str(vv.max_dist(dist_list))+"\n"
-        s += "min:      "+str(vv.min_dist(dist_list))+"\n"
-        s += "median:      "+str(vv.median_dist(dist_list))+"\n"
+        s += "average:  "+str(vv.avg_dist(cl))+"\n"
+        s += "max:      "+str(vv.max_dist(cl))+"\n"
+        s += "min:      "+str(vv.min_dist(cl))+"\n"
+        s += "median:      "+str(vv.median_dist(cl))+"\n"
         print s
 
         plt.figure(figsize=(15, 10))

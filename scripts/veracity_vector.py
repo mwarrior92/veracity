@@ -394,18 +394,19 @@ def closeness(a, b):
         return n/d
 
 
-def get_dist_list(svl):
+def get_cl(svl, cc=None):
     '''
     :param svl: list of smartvecs
     :return: list of pairwise closeness measures between input smartvecs
 
     NOTE: omits self comparisons and associative (redundant) comparisons;
     '''
-    dist_list = list()
+    cc = init_ccache(cc)
+    cl = list()
     for i in xrange(0, len(svl)-1):
         for j in xrange(i+1, len(svl)):
-            dist_list.append(1.0-closeness(svl[i], svl[j]))
-    return dist_list
+            cl.append(cc[svl[i]][svl[j]])
+    return cl
 
 
 def get_domains(dd):
