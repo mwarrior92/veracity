@@ -185,6 +185,7 @@ class smartvec:
                     ipstr = ipp.int2ip(ipm)
                     if IP(ipstr+"/32").iptype() == "PUBLIC" or oddballs:
                         self.vec[dom][ipm] += query_count / answer_count
+        self.mask = mask
         self.ip = probe_ip
 
 
@@ -318,14 +319,10 @@ def closeness(a, b):
 
 def get_dist_list(svl):
     # NOTE: omits self comparisons and associative (redundant) comparisons;
-    # can't use get_dist_list output with linkage
     dist_list = list()
-    checked = set()
-    for ii, i in enumerate(svl):
-        checked.add(ii)
-        for jj, j in enumerate(svl):
-            if jj not in checked:
-                dist_list.append(1.0-closeness(i, j))
+    for i in xrange(0, len(svl)-1):
+        for j in xrange(i+1, len(svl)):
+            dist_list.append(1.0-closeness(svl[i], svl[j]))
     return dist_list
 
 
@@ -390,3 +387,62 @@ def sort_sites(anssets):
         sl = [z[0] for z in sl]
 
         return sl
+
+
+def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
+        oddballs=False):
+    window = get_window(t, duration, country_set=country_set)
+    dd = window_to_dicts(window)
+    anssets = get_answer_space_dict(dd)
+    sl = sort_sites(anssets)
+    fmt = transform_fmt(fmt, sl)
+
+    # remove any domains that only have 1 IP (since all nodes will see the
+    # same thing)
+    for dom in fmt:
+        if len(anssets[dom]) < 2 or ('google' in dom and dom != 'google.com.'):
+            del anssets[dom]
+    fmt = list(set(anssets.keys()).intersection(set(fmt)))
+
+    ps = get_probe_space(dd, fmt)
+    svl = dicts_to_svl(dd, fmt, mask, oddballs)
+    for dom in fmt:
+        print "-----------"+dom+"-----------"
+        tmp = sorted(anssets[dom])
+        for val in tmp:
+            if type(val) is int:
+                print ipp.int2ip(val)
+    return svl, fmt
+
+
+class closeness_cache:
+    def __init__(self):
+        self.cache = dict()
+        self.tmp_item = None
+
+    def get_closeness(self, a, b):
+        key = tuple(sorted([a.ip, b.ip]))
+        if key in self.cache:
+            return self.cache[key]
+        else:
+            tmp = closeness(a, b)
+            self.cache[key] = tmp
+            return tmp
+
+    def __getitem__(self, b):
+        # if this works, it should let you do cc[a][b] to get closeness(a,b)
+        if self.tmp_item is None:
+            self.tmp_item = b
+            return self
+        else:
+            a = self.tmp_item
+            self.tmp_item = None
+            return self.get_closeness(a, b)
+
+
+def init_ccache(ccache=None):
+    if ccache is None:
+        return closeness_cache()
+    else:
+        return ccache
+

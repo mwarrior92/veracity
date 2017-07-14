@@ -1,13 +1,7 @@
 from warriorpy.shorthand import diriofile as df
-from pymongo import MongoClient
-import json
-from netaddr import IPNetwork as CIDR
-from netaddr import IPAddress as IP
 import numpy as np
 import veracity_vector as vv
 from warriorpy.net_tools import ipparsing as ipp
-from sklearn.cluster import DBSCAN
-from sklearn import metrics
 from matplotlib import pyplot as plt
 from scipy.cluster.hierarchy import dendrogram, linkage
 from scipy.cluster.hierarchy import cophenet
@@ -35,44 +29,9 @@ rawdirlist = df.getlines(basedir+'state/datapaths.list')
 datafiles = df.listfiles(basedir+rawdirlist[0], fullpath=True)
 plotsdir = df.rightdir(basedir+"plots/")
 
-domains = df.getlines(basedir+'state/sites.csv')
-
-# database setup
-mclient = MongoClient()
-db = mclient.veracity
-coll = db.m30002_may17
-
-pd = db.probe_data
-
 ##################################################################
 #                           CODE
 ##################################################################
-
-
-def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
-        oddballs=False):
-    window = vv.get_window(t, duration, country_set=country_set)
-    dd = vv.window_to_dicts(window)
-    anssets = vv.get_answer_space_dict(dd)
-    sl = vv.sort_sites(anssets)
-    fmt = vv.transform_fmt(fmt, sl)
-
-    # remove any domains that only have 1 IP (since all nodes will see the
-    # same thing)
-    for dom in fmt:
-        if len(anssets[dom]) < 2 or ('google' in dom and dom != 'google.com.'):
-            del anssets[dom]
-    fmt = list(set(anssets.keys()).intersection(set(fmt)))
-
-    ps = vv.get_probe_space(dd, fmt)
-    svl = vv.dicts_to_svl(dd, fmt, mask, oddballs)
-    for dom in fmt:
-        print "-----------"+dom+"-----------"
-        tmp = sorted(anssets[dom])
-        for val in tmp:
-            if type(val) is int:
-                print ipp.int2ip(val)
-    return svl, fmt
 
 
 def get_dendrogram(t, duration=30000, mask=32, fmt=None,
@@ -80,7 +39,7 @@ def get_dendrogram(t, duration=30000, mask=32, fmt=None,
         fname='dendrogram.pdf', X=None):
 
     if X is None:
-        X, fmt = get_svl(t, duration, mask, fmt, country_set, oddballs)
+        X, fmt = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
 
     dm = np.zeros((len(X) * (len(X) - 1)) // 2, dtype=np.double)
     k = 0
@@ -107,10 +66,10 @@ def get_dendrogram(t, duration=30000, mask=32, fmt=None,
     return Z, d, X
 
 
-def country_closeness(t, duration=30000, mask=32, fmt=None,
+def country_full_closeness_hist(t, duration=30000, mask=32, fmt=None,
         method="average", country_set=None, oddballs=True):
 
-    svl, fmt = get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
 
     # remove any countries that have less than 10 probes, as if they have near 1
     # probe, the analyses can be more skewed by outlier behavior
@@ -122,6 +81,7 @@ def country_closeness(t, duration=30000, mask=32, fmt=None,
 
     for c in csvl:
         if c is None:
+            print "found a 'None' in csvl..."
             continue
         dist_list = vv.get_dist_list(csvl[c])
         s = ""
@@ -139,10 +99,10 @@ def country_closeness(t, duration=30000, mask=32, fmt=None,
         plt.savefig(plotsdir+c+'_dist.pdf', bbox_inches='tight')
 
 
-def asn_closeness(t, duration=30000, mask=32, fmt=None,
+def asn_full_closeness_hist(t, duration=30000, mask=32, fmt=None,
         method="average", country_set=None, oddballs=True):
 
-    svl, fmt = get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
 
     # remove any countries that have less than 10 probes, as if they have near 1
     # probe, the analyses can be more skewed by outlier behavior
@@ -154,6 +114,7 @@ def asn_closeness(t, duration=30000, mask=32, fmt=None,
 
     for a in asvl:
         if a is None:
+            print "found a 'None' in asvl..."
             continue
         dist_list = vv.get_dist_list(asvl[a])
         s = ""
