@@ -203,7 +203,12 @@ def owner_svl(svl):
     '''
     osvl = defaultdict(list) # {owner: svl}
     for sv in svl:
-        osvl[sv.get_owner()].append(sv)
+        try:
+            osvl[sv.get_owner()].append(sv)
+        except:
+            # I now generic except is bad code, but sending queries over the
+            # Internet bugs out a lot so I need a catch all
+            pass
     return osvl
 
 
@@ -418,22 +423,30 @@ def get_domains(dd):
     '''
     doms = set()
     for probe in dd:
-        doms += set([z for z in dd[probe] if 'inds_' not in dd[probe][z]])
+        doms |= set([z for z in dd[probe] if 'inds_' not in z])
     return list(doms)
 
 
 def get_answer_space_dict(dd, fmt=None):
     '''
-    :param dd: output from window_to_dicts()
+    :param dd: output from window_to_dicts() or svl
     :param fmt: see transform fmt
     :return: dict {domain: number of IPs observed}
     '''
     anssets = defaultdict(set)
     fmt = transform_fmt(fmt)
-    for probe in dd:
-        for dom in fmt:
-            if dom in dd[probe]:
-                anssets[dom] |= set(dd[probe][dom])
+    if type(dd) is dict or type(dd) is defaultdict:
+        for probe in dd:
+            for dom in fmt:
+                if dom in dd[probe]:
+                    anssets[dom] |= set(dd[probe][dom])
+    elif type(dd) is list:
+        for sv in dd:
+            for dom in fmt:
+                if dom in dd:
+                    anssets[dom] |= set(sv.vec[dom])
+    else:
+        logger.error('dd is of wrong type... should be dd dict or svl')
     return anssets
 
 
@@ -499,7 +512,8 @@ def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
     window = get_window(t, duration, country_set=country_set)
     dd = window_to_dicts(window)
     global domains
-    domains = get_domains()
+    domains = get_domains(dd)
+    print domains
     anssets = get_answer_space_dict(dd)
     sl = sort_sites(anssets)
     fmt = transform_fmt(fmt, sl)

@@ -187,6 +187,8 @@ def nodes_by_degree(G):
     '''
     :param G: graph
     :return: dict {degree: [nodes with degree==degree]}
+
+    NOTE: this should always be run immediately before dd will be used
     '''
     nd = G.degree()
     dd = defaultdict(list)

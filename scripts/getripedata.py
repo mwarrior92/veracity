@@ -117,13 +117,16 @@ def append_db(fnum):
         logger.debug("checking cache...")
         tmp = list(probe_cache.find({"probe_id": parsed["probe_id"]}).limit(1))
         if len(tmp) > 0:
-            sincelastmiss += 1
-            logger.debug("probe info cache hit")
-            parsed['country'] = tmp[0]['country']
-            if 'asn_v4' in tmp[0]:
-                parsed['asn_v4'] = tmp[0]['asn_v4']
-            if 'asn_v6' in tmp[0]:
-                parsed['asn_v6'] = tmp[0]['asn_v6']
+            try:
+                sincelastmiss += 1
+                logger.debug("probe info cache hit")
+                parsed['country'] = tmp[0]['country']
+                if 'asn_v4' in tmp[0]:
+                    parsed['asn_v4'] = tmp[0]['asn_v4']
+                if 'asn_v6' in tmp[0]:
+                    parsed['asn_v6'] = tmp[0]['asn_v6']
+            except KeyError:
+                continue
         else:
             print "missed on: "+str(parsed["probe_id"])+"; "\
             +str(sincelastmiss)+" since last incident"
@@ -169,7 +172,10 @@ if __name__ == "__main__":
 
 
 def update_probe_info(fields):
-    cache = list(probe_cache.find())
+    findme = dict()
+    for field in fields:
+        findme[field] = {"$exists":False}
+    cache = list(probe_cache.find(findme))
     for probe in cache:
         if len(set(probe).symmetric_difference(set(fields))) > 0:
             changed = dict()
