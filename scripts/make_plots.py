@@ -3,6 +3,7 @@ from warriorpy.shorthand import plotstuff as ps
 from matplotlib import pyplot as plt
 import numpy as np
 import veracity_vector as vv
+import metric_validation as mv
 import vgraphs as vg
 import networkx as nx
 from collections import defaultdict
@@ -270,10 +271,145 @@ def inv_hist(t, duration=30000, mask=32, fmt=None, country_set=None,
     plt.savefig(plotsdir+fname+'inv_hist.pdf', bbox_inches='tight')
 
 
-def plot_self_match():
+def plot_self_match(t, duration=30000, mask=32, fmt=None,
+        country_set=None, oddballs=True, fname="", ccache=None, loops=2,
+        gap=1, thresh=10):
     '''
     lines:  1) domain independent cdf of ALL matches
             2-n) cdf of matches for domain with answer space > thresh
             n-m) cdf of matches for ALL domains with answer space < thresh
     '''
-    pass
+    svld, allsvl, allfmt = mv.arrange_self_data(t, duration, gap, loops, mask,
+            fmt, country_set, oddballs)
+    keys = svld.keys()
+    anssets = vv.get_answer_space_dict(allsvl, allfmt)
+
+    #anssets = vv.get_answer_space_dict(allsvl, allfmt)
+    sm = mv.self_match(svld)
+    vals = [[], []]
+    labels = ['all', 'small']
+    for dom in sm:
+        vals[0] = vals[0] + sm[dom]
+        if len(anssets[dom]) < thresh:
+            vals[1] += sm[dom]
+        else:
+            vals.append(sm[dom])
+            labels.append(dom)
+
+    fig, ax = plt.subplots(1, 1)
+    for i in xrange(0, len(vals)):
+        print "*****************"+labels[i]+"*********************"
+        print vals[i]
+        ecdf = ECDF(vals[i])
+        x = list(ecdf.x)
+        y = list(ecdf.y)
+        ax.plot(x, y, label=labels[i])
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5)
+    plt.xlabel("self jaccard diff by domain")
+    plt.ylabel("CDF of clients")
+    lgd = ps.legend_setup(ax, 4, "top center", True)
+    filename = plotsdir+"self_jaccard"+fname
+    fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    plt.close(fig)
+
+    print "saving data..."
+    for i in xrange(0, len(vals)):
+        outstr = df.overwrite(statedir+labels[i]+'_self_jaccard.csv',
+                df.list2col(vals[i]))
+
+
+def plot_examine_self_diff(t, duration=30000, mask=32, fmt=None,
+        country_set=None, oddballs=True, fname="", ccache=None, loops=2,
+        gap=1, thresh=10):
+    '''
+    lines:  1) domain independent cdf of ALL matches
+            2-n) cdf of matches for domain with answer space > thresh
+            n-m) cdf of matches for ALL domains with answer space < thresh
+    '''
+    svld, allsvl, allfmt = mv.arrange_self_data(t, duration, gap, loops, mask,
+            fmt, country_set, oddballs)
+    keys = svld.keys()
+    anssets = vv.get_answer_space_dict(allsvl, allfmt)
+
+    #anssets = vv.get_answer_space_dict(allsvl, allfmt)
+    sm = mv.examine_self_diff(svld)
+    vals = [[], []]
+    labels = ['all', 'small']
+    for dom in sm:
+        vals[0] = vals[0] + sm[dom]
+        if len(anssets[dom]) < thresh:
+            vals[1] += sm[dom]
+        else:
+            vals.append(sm[dom])
+            labels.append(dom)
+
+    fig, ax = plt.subplots(1, 1)
+    for i in xrange(0, len(vals)):
+        print "*****************"+labels[i]+"*********************"
+        print vals[i]
+        ecdf = ECDF(vals[i])
+        x = list(ecdf.x)
+        y = list(ecdf.y)
+        ax.plot(x, y, label=labels[i])
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5)
+    plt.xlabel("self mask match by domain")
+    plt.ylabel("CDF of clients")
+    lgd = ps.legend_setup(ax, 4, "top center", True)
+    filename = plotsdir+"self_mask"+fname
+    fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    plt.close(fig)
+
+    print "saving data..."
+    for i in xrange(0, len(vals)):
+        outstr = df.overwrite(statedir+labels[i]+'_self_jaccard.csv',
+                df.list2col(vals[i]))
+
+
+def plot_examine_diff_diff(t, duration=30000, mask=32, fmt=None,
+        country_set=None, oddballs=True, fname="", ccache=None, loops=2,
+        gap=1, thresh=10):
+    '''
+    lines:  1) domain independent cdf of ALL matches
+            2-n) cdf of matches for domain with answer space > thresh
+            n-m) cdf of matches for ALL domains with answer space < thresh
+    '''
+    svld, allsvl, allfmt = mv.arrange_self_data(t, duration, gap, loops, mask,
+            fmt, country_set, oddballs)
+    keys = svld.keys()
+    anssets = vv.get_answer_space_dict(allsvl, allfmt)
+
+    #anssets = vv.get_answer_space_dict(allsvl, allfmt)
+    sm = mv.examine_diff_diff(svld)
+    vals = [[], []]
+    labels = ['all', 'small']
+    for dom in sm:
+        vals[0] = vals[0] + sm[dom]
+        if len(anssets[dom]) < thresh:
+            vals[1] += sm[dom]
+        else:
+            vals.append(sm[dom])
+            labels.append(dom)
+
+    fig, ax = plt.subplots(1, 1)
+    for i in xrange(0, len(vals)):
+        print "*****************"+labels[i]+"*********************"
+        print vals[i]
+        ecdf = ECDF(vals[i])
+        x = list(ecdf.x)
+        y = list(ecdf.y)
+        ax.plot(x, y, label=labels[i])
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5)
+    plt.xlabel("diff mask match by domain")
+    plt.ylabel("CDF of clients")
+    lgd = ps.legend_setup(ax, 4, "top center", True)
+    filename = plotsdir+"diff_mask"+fname
+    fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    plt.close(fig)
+
+    print "saving data..."
+    for i in xrange(0, len(vals)):
+        outstr = df.overwrite(statedir+labels[i]+'_diff_jaccard.csv',
+                df.list2col(vals[i]))

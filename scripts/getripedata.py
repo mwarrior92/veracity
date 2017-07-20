@@ -43,6 +43,7 @@ finished = False
 def append_db(fnum):
     print "fnum is: "+str(fnum)
     lr = linereader.linereader(datafiles[fnum])
+    print "sorting..."
     lastentry = coll.find().sort([('ind',-1)]).limit(1)
     if lastentry.count() > 0:
         ind = lastentry[0]['ind'] + 1
@@ -91,6 +92,7 @@ def append_db(fnum):
 
     print "pos is: " + str(pos)
     sincelastmiss = 0
+    q = list()
     while lr.gotmore:
         strline = lr.getnext()
         pos += 1
@@ -149,8 +151,10 @@ def append_db(fnum):
                     parsed['prefix_v6'] = probe_info['prefix_v6']
             print "inserting..."
             probe_cache.insert_one(parsed)
-        coll.insert_one(parsed)
+        q.append(parsed)
         if ind % 500 == 0:
+            coll.insert_many(q)
+            q = list()
             print "entries so far: "+str(ind)
     global finished
     finished = True

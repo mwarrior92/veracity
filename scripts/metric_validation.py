@@ -39,15 +39,16 @@ plotsdir = df.rightdir(basedir+"plots/")
 ##################################################################
 
 
-def arrange_self_data(t, duration=30000, gap=1000, loops=2, mask=32,
-        fmt=None, country_set=None, oddballs=True, fname="", ccache=None):
+def arrange_self_data(t, duration=30000, gap=1, loops=2, mask=32,
+        fmt=None, country_set=None, oddballs=True):
 
     svld = defaultdict(list) # dict {ip: [svl]}
     allsvl = list()
     allfmt = set()
 
     for l in xrange(0, loops):
-        svl, fmt2 = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
+        svl, fmt2 = vv.get_svl(t+l*(gap+duration), duration, mask,
+                fmt, country_set, oddballs)
         for i in xrange(0, len(svl)):
             svld[svl[i].ip].append(svl[i])
             allsvl.append(svl[i])
@@ -129,16 +130,77 @@ def self_match(svld):
     sm = defaultdict(list) # {dom: [self match value]}
                             # one self match value per client per domain
     for ip in svld:
-        tmpsm = dict()
+        tmpsm = defaultdict(list)
         for i in xrange(0, len(svld[ip])-1):
             for j in xrange(i+1, len(svld[ip])):
-                a = svld[ip][i]
-                b = svld[ip][j]
-                for dom in [z for z in a if z in b]:
-                    n = 2.0*float(a.vec[dom].symmetric_difference(b.vec[dom]))
-                    d = float(len(a.vec[dom])+len(b.vec[dom]))
-                    tmpsm[dom].append(n/d)
+                A = svld[ip][i]
+                B = svld[ip][j]
+                for dom in [z for z in A if z in B]:
+                    a = set(A.vec[dom])
+                    b = set(B.vec[dom])
+                    n = float(len(a.intersection(b)))
+                    d = float(min((len(a),len(b))))
+                    tmpsm[dom].append(1.0-(n/d))
         for dom in tmpsm:
             sm[dom].append(np.mean(tmpsm[dom]))
     return sm
+
+
+def examine_self_diff(svld):
+    sm = defaultdict(list) # {dom: [self match value]}
+                            # one self match value per client per domain
+    for ip in svld:
+        tmpsm = defaultdict(list)
+        for i in xrange(0, len(svld[ip])-1):
+            for j in xrange(i+1, len(svld[ip])):
+                A = svld[ip][i]
+                B = svld[ip][j]
+                for dom in [z for z in A if z in B]:
+                    a = set(A.vec[dom])
+                    b = set(B.vec[dom])
+                    n = a.symmetric_difference(b)
+                    if len(n) > 0:
+                        matches = list()
+                        for ip in n:
+                            if ip not in a:
+                                for ip2 in [z for z in a]:
+                                    matches.append(ipp.prefix_match(ip, ip2))
+                            elif ip not in b:
+                                for ip2 in [z for z in b]:
+                                    matches.append(ipp.prefix_match(ip, ip2))
+                            tmpsm[dom].append(max(matches))
+        for dom in tmpsm:
+            sm[dom].append(np.mean(tmpsm[dom]))
+    return sm
+
+
+def examine_diff_diff(svld):
+    sm = defaultdict(list) # {dom: [self match value]}
+                            # one self match value per client per domain
+    ips = svld.keys()
+    for p in xrange(0, len(ips)-1):
+        for q in xrange(p+1, len(ips)):
+            tmpsm = defaultdict(list)
+            for i in xrange(0, len(svld[ips[p]])):
+                for j in xrange(0, len(svld[ips[q]])):
+                    A = svld[ips[p]][i]
+                    B = svld[ips[q]][j]
+                    for dom in [z for z in A if z in B]:
+                        a = set(A.vec[dom])
+                        b = set(B.vec[dom])
+                        n = a.symmetric_difference(b)
+                        if len(n) > 0:
+                            matches = list()
+                            for ip in n:
+                                if ip not in a:
+                                    for ip2 in [z for z in a]:
+                                        matches.append(ipp.prefix_match(ip, ip2))
+                                elif ip not in b:
+                                    for ip2 in [z for z in b]:
+                                        matches.append(ipp.prefix_match(ip, ip2))
+                                tmpsm[dom].append(max(matches))
+        for dom in tmpsm:
+            sm[dom].append(np.mean(tmpsm[dom]))
+    return sm
+
 

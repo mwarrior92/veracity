@@ -443,7 +443,7 @@ def get_answer_space_dict(dd, fmt=None):
     elif type(dd) is list:
         for sv in dd:
             for dom in fmt:
-                if dom in dd:
+                if dom in sv:
                     anssets[dom] |= set(sv.vec[dom])
     else:
         logger.error('dd is of wrong type... should be dd dict or svl')
@@ -527,12 +527,14 @@ def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
 
     ps = get_probe_space(dd, fmt)
     svl = dicts_to_svl(dd, fmt, mask, oddballs)
+    '''
     for dom in fmt:
         print "-----------"+dom+"-----------"
         tmp = sorted(anssets[dom])
         for val in tmp:
             if type(val) is int:
                 print ipp.int2ip(val)
+    '''
     return svl, fmt
 
 
