@@ -70,7 +70,6 @@ def client_answer_space(t, duration=30000, mask=32, fmt=None, country=None):
                 if ip != 0 and IP(ipp.int2ip(ip)+"/32").iptype() == 'PUBLIC':
                     infod[probeip][ip].add(dom)
 
-
     print "plotting IPs/domains per client"
     # CDF of number of IPs seen by a client
     ippc = list() # IPs per client

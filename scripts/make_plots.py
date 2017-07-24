@@ -421,21 +421,46 @@ def plot_measure_expansion(t, duration=30000, mask=32, fmt=None,
     svld, allsvl, allfmt = mv.arrange_self_data(t, duration, gap, loops, mask,
             fmt, country_set, oddballs)
     keys = svld.keys()
+
+    counts = mv.measure_expansion(svld)
+    domvals = defaultdict(lambda: defaultdict(list))
+    allvals = defaultdict(list)
+    smallvals = defaultdict(list)
+
     anssets = vv.get_answer_space_dict(allsvl, allfmt)
 
-    vals = [[], []]
-    labels = ['all', 'small']
-    for dom in sm:
-        vals[0] = vals[0] + sm[dom]
-        if len(anssets[dom]) < thresh:
-            vals[1] += sm[dom]
-        else:
-            vals.append(sm[dom])
-            labels.append(dom)
-    counts = mv.measure_expansion(svld):
     for c in counts:
         for dom in c:
-            pass
+            for i, val in enumerate(c[dom]['ratio']):
+                allvals[i].append(val)
+                if len(anssets[dom]) < thresh:
+                    smallvals[i].append(val)
+                else:
+                    domvals[dom][i].append(val)
 
-    return
+    labels = ['all', 'small'] + domvals.keys()
+    vals = list()
+    for i in labels:
+        vals.append([])
+    for i in sorted(allvals.keys()):
+        vals[0].append(np.mean(allvals[i]))
+        vals[1].append(np.mean(smallvals[i]))
+        for j, dom in enumerate(labels[2:]):
+            vals[j+2].append(np.mean(domvals[dom][i]))
 
+    fig, ax = plt.subplots(1, 1)
+    for i in xrange(0, len(vals)):
+        ax.plot(vals[i], label=labels[i])
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5)
+    plt.xlabel("cycle #")
+    plt.ylabel("# new IPs / ans. size")
+    lgd = ps.legend_setup(ax, 4, "top center", True)
+    filename = plotsdir+"newvssize"+fname
+    fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    plt.close(fig)
+
+    print "saving data..."
+    for i in xrange(0, len(vals)):
+        outstr = df.overwrite(statedir+labels[i]+'newvssize.csv',
+                df.list2col(vals[i]))
