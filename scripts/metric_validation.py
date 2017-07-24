@@ -146,6 +146,26 @@ def self_match(svld):
     return sm
 
 
+def measure_expansion(svld):
+    allcounts = list()
+    for ip in svld:
+        count = defaultdict(dict)
+        for sv in svld[ip]:
+            for dom in sv:
+                ips = sv.vec[dom]
+                if dom not in count:
+                    count[dom]['ips'] = set()
+                    count[dom]['new_ips'] = list()
+                    count[dom]['old_ips'] = list()
+                intsn = count[dom]['ips'].intersection(ips)
+                count[dom]['new_ips'].append(len(ips) - len(intsn))
+                count[dom]['old_ips'].append(len(intsn))
+                count[dom]['ips'] |= ips
+        allcounts.append(count)
+
+    return allcounts
+
+
 def examine_self_diff(svld):
     sm = defaultdict(list) # {dom: [self match value]}
                             # one self match value per client per domain

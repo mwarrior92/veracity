@@ -271,7 +271,7 @@ def inv_hist(t, duration=30000, mask=32, fmt=None, country_set=None,
     plt.savefig(plotsdir+fname+'inv_hist.pdf', bbox_inches='tight')
 
 
-def plot_self_match(t, duration=30000, mask=32, fmt=None,
+def plot_self_match(t, duration=6*30000, mask=32, fmt=None,
         country_set=None, oddballs=True, fname="", ccache=None, loops=2,
         gap=1, thresh=10):
     '''
@@ -321,7 +321,7 @@ def plot_self_match(t, duration=30000, mask=32, fmt=None,
 
 def plot_examine_self_diff(t, duration=30000, mask=32, fmt=None,
         country_set=None, oddballs=True, fname="", ccache=None, loops=2,
-        gap=1, thresh=10):
+        gap=0, thresh=10):
     '''
     lines:  1) domain independent cdf of ALL matches
             2-n) cdf of matches for domain with answer space > thresh
@@ -369,7 +369,7 @@ def plot_examine_self_diff(t, duration=30000, mask=32, fmt=None,
 
 def plot_examine_diff_diff(t, duration=30000, mask=32, fmt=None,
         country_set=None, oddballs=True, fname="", ccache=None, loops=2,
-        gap=1, thresh=10):
+        gap=0, thresh=10):
     '''
     lines:  1) domain independent cdf of ALL matches
             2-n) cdf of matches for domain with answer space > thresh
@@ -413,3 +413,29 @@ def plot_examine_diff_diff(t, duration=30000, mask=32, fmt=None,
     for i in xrange(0, len(vals)):
         outstr = df.overwrite(statedir+labels[i]+'_diff_jaccard.csv',
                 df.list2col(vals[i]))
+
+
+def plot_measure_expansion(t, duration=30000, mask=32, fmt=None,
+        country_set=None, oddballs=True, fname="", ccache=None, loops=10,
+        gap=0, thresh=10):
+    svld, allsvl, allfmt = mv.arrange_self_data(t, duration, gap, loops, mask,
+            fmt, country_set, oddballs)
+    keys = svld.keys()
+    anssets = vv.get_answer_space_dict(allsvl, allfmt)
+
+    vals = [[], []]
+    labels = ['all', 'small']
+    for dom in sm:
+        vals[0] = vals[0] + sm[dom]
+        if len(anssets[dom]) < thresh:
+            vals[1] += sm[dom]
+        else:
+            vals.append(sm[dom])
+            labels.append(dom)
+    counts = mv.measure_expansion(svld):
+    for c in counts:
+        for dom in c:
+            pass
+
+    return
+

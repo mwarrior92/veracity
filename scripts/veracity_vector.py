@@ -50,7 +50,7 @@ domains = df.getlines(basedir+'state/sites.csv')
 # database setup
 mclient = MongoClient()
 db = mclient.veracity
-data = db.m30002_may17
+data = db.m30002_may17_full
 pdata = db.probe_data
 
 ##################################################################
@@ -108,7 +108,8 @@ def window_to_dicts(window):
     :return: dict: {probe_ip: {domain: answers}, {inds_domain: [ind list]}}
     '''
     d = defaultdict(lambda: defaultdict(list))
-    for doc in list(window):
+    #for doc in list(window):
+    for doc in window:
         if len(doc['answers']) > 0:
             d[doc['_id']['probe_ip']]['inds_'+doc['_id']['domain']].append(doc['ind'])
             d[doc['_id']['probe_ip']][doc['_id']['domain']] += doc['answers']
@@ -489,7 +490,11 @@ def sort_sites(anssets):
 
     sl = sorted(spacelist, key=lambda z: z[1])
     for val in sl:
-        print val
+        print "***************"+str(val)+"******************"
+        if val[0] == 'google.com.':
+            tmp = sorted(anssets[val[0]])
+            for ip in tmp:
+                print ipp.int2ip(ip)
     sl = [z[0] for z in sl]
 
     return sl

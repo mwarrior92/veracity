@@ -44,7 +44,7 @@ domains = df.getlines(basedir+'state/sites.csv')
 # database setup
 mclient = MongoClient()
 db = mclient.veracity
-coll = db.m30002_may17
+coll = db.m30002_may17_full
 
 ag = db.answergroups
 

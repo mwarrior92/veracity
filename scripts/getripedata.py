@@ -158,6 +158,7 @@ def append_db(fnum):
             print "entries so far: "+str(ind)
     global finished
     finished = True
+    coll.insert_many(q)
     logger.info("finished with fnum "+str(fnum))
     return
 
