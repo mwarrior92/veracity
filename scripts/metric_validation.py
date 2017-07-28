@@ -40,7 +40,7 @@ plotsdir = df.rightdir(basedir+"plots/")
 
 
 def arrange_self_data(t, duration=30000, gap=1, loops=2, mask=32,
-        fmt=None, country_set=None, oddballs=True):
+        fmt=None, country_set=None, oddballs=True, maxmissing=0):
 
     svld = defaultdict(list) # dict {id: [svl]}
     allsvl = list()
@@ -49,7 +49,7 @@ def arrange_self_data(t, duration=30000, gap=1, loops=2, mask=32,
 
     for l in xrange(0, loops):
         svl, fmt2, anssets2 = vv.get_svl(t+l*(gap+duration), duration, mask,
-                fmt, country_set, oddballs)
+                fmt, country_set, oddballs, maxmissing)
         allfmt |= set(fmt2)
         for dom in anssets2:
             anssets[dom] |= set(anssets2[dom])

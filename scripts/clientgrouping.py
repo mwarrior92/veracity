@@ -5,7 +5,6 @@ from warriorpy.net_tools import ipparsing as ipp
 from matplotlib import pyplot as plt
 from scipy.cluster.hierarchy import dendrogram, linkage
 from scipy.cluster.hierarchy import cophenet
-from scipy.spatial.distance import pdist
 
 ##################################################################
 #                           LOGGING

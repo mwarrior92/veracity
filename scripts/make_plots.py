@@ -8,6 +8,9 @@ import vgraphs as vg
 import networkx as nx
 from collections import defaultdict
 from statsmodels.distributions.empirical_distribution import ECDF
+from warriorpy.net_tools import ipparsing as ipp
+from scipy.cluster.hierarchy import dendrogram, linkage
+from scipy.cluster.hierarchy import cophenet
 
 ##################################################################
 #                           LOGGING
@@ -37,9 +40,42 @@ plotsdir = df.rightdir(basedir+"plots/")
 ##################################################################
 
 
+def get_dendrogram(t, duration=30000, mask=32, fmt=None,
+        method="average", country_set=None, p=0, oddballs=False,
+        fname='dendrogram.pdf', X=None, maxmissing=0):
+
+    if X is None:
+        X, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs,
+                maxmissing)
+
+    dm = np.zeros((len(X) * (len(X) - 1)) // 2, dtype=np.double)
+    k = 0
+    for i in xrange(0, len(X)-1):
+        for j in xrange(i + 1, len(X)):
+            dm[k] = 1.0 - vv.closeness(X[i], X[j])
+            k = k + 1
+            if k % 10000 == 0:
+                print k
+    Z = linkage(dm, method)
+    c, coph_dists = cophenet(Z, dm)
+    print " Cophenetic Correlation Coefficient: "+str(c)
+    plt.figure(figsize=(15, 10))
+    plt.xlabel('sample index')
+    plt.ylabel('distance')
+    d = dendrogram(
+        Z,
+        leaf_rotation=90.,  # rotates the x axis labels
+        leaf_font_size=8.,  # font size for the x axis labels
+        truncate_mode="lastp",
+        p=p,
+    )
+    plt.savefig(plotsdir+fname, bbox_inches='tight')
+    return Z, d, X
+
+
 def plot_optimizing_window(t, duration=30000, mask=32, fmt=None,
         country_set=None, oddballs=True, fname="", xlim=None,
-        maxdur=90000*15, incr=30000):
+        maxdur=90000*15, incr=30000, maxmissing=0):
 
     allvals = list()
     allbars = list()
@@ -48,11 +84,11 @@ def plot_optimizing_window(t, duration=30000, mask=32, fmt=None,
     while dur < maxdur:
         ccache = vv.init_ccache()
         print "getting svls..."
-        svl, _, _ = vv.get_svl(t, dur, mask, fmt, country_set, oddballs)
+        svl, _, _ = vv.get_svl(t, dur, mask, fmt, country_set, oddballs, maxmissing)
         svl1 = dict()
         for sv in svl:
             svl1[sv.id] = sv
-        svl, _, _ = vv.get_svl(t+dur, dur, mask, fmt, country_set, oddballs)
+        svl, _, _ = vv.get_svl(t+dur, dur, mask, fmt, country_set, oddballs, maxmissing)
         svl2 = dict()
         for sv in svl:
             svl2[sv.id] = sv
@@ -89,9 +125,9 @@ def plot_optimizing_window(t, duration=30000, mask=32, fmt=None,
 
 
 def plot_closeness_diff_desc(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", ccache=None, xlim=[.6, 1.0]):
+        country_set=None, oddballs=True, fname="", ccache=None, xlim=[.6, 1.0], maxmissing=0):
     print "getting svl..."
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
     print len(svl)
 
     print "getting descriptor lists..."
@@ -176,9 +212,9 @@ def plot_closeness_diff_desc(t, duration=30000, mask=32, fmt=None,
 
 
 def plot_closeness_same_desc(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", ccache=None, xlim=[.6, 1.0]):
+        country_set=None, oddballs=True, fname="", ccache=None, xlim=[.6, 1.0], maxmissing=0):
     print "getting svl..."
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
 
     print "getting descriptor lists..."
     csvl = vv.country_svl(svl)
@@ -262,10 +298,10 @@ def plot_closeness_same_desc(t, duration=30000, mask=32, fmt=None,
 
 
 def plot_csize_vs_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
-        oddballs=True, fname=""):
+        oddballs=True, fname="", maxmissing=0):
 
     print "getting svl"
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
     print "calling csize vs mc"
     x, y = vg.csize_vs_mc(svl, np.arange(.45, .65, .01))
     plt.figure(figsize=(15, 10))
@@ -276,9 +312,9 @@ def plot_csize_vs_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
 
 
 def plot_ccount_vs_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
-        oddballs=True, fname=""):
+        oddballs=True, fname="", maxmissing=0):
 
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
     x, y = vg.ccount_vs_mc(svl, np.arange(.45, .48, .01))
     plt.figure(figsize=(15, 10))
     plt.xlabel('minimum closeness')
@@ -288,10 +324,10 @@ def plot_ccount_vs_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
 
 
 def inv_hist(t, duration=30000, mask=32, fmt=None, country_set=None,
-        oddballs=True, fname="", thresh=.35):
+        oddballs=True, fname="", thresh=.35, maxmissing=0):
 
     logger.info("getting svl...")
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
     logger.info("getting ipsl...")
     ipsl, dompairs = get_ip_sets(svl)
     logger.info("getting pairing counts...")
@@ -324,14 +360,14 @@ def inv_hist(t, duration=30000, mask=32, fmt=None, country_set=None,
 
 def plot_self_match(t, duration=6*30000, mask=32, fmt=None,
         country_set=None, oddballs=True, fname="", ccache=None, loops=2,
-        gap=1, thresh=10):
+        gap=1, thresh=10, maxmissing=0):
     '''
     lines:  1) domain independent cdf of ALL matches
             2-n) cdf of matches for domain with answer space > thresh
             n-m) cdf of matches for ALL domains with answer space < thresh
     '''
     svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
-            fmt, country_set, oddballs)
+            fmt, country_set, oddballs, maxmissing)
     keys = svld.keys()
 
     sm = mv.self_match(svld)
@@ -370,14 +406,14 @@ def plot_self_match(t, duration=6*30000, mask=32, fmt=None,
 
 def plot_examine_self_diff(t, duration=30000, mask=32, fmt=None,
         country_set=None, oddballs=True, fname="", ccache=None, loops=2,
-        gap=0, thresh=10):
+        gap=0, thresh=10, maxmissing=0):
     '''
     lines:  1) domain independent cdf of ALL matches
             2-n) cdf of matches for domain with answer space > thresh
             n-m) cdf of matches for ALL domains with answer space < thresh
     '''
     svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
-            fmt, country_set, oddballs)
+            fmt, country_set, oddballs, maxmissing)
     keys = svld.keys()
 
     sm = mv.examine_self_diff(svld)
@@ -414,14 +450,14 @@ def plot_examine_self_diff(t, duration=30000, mask=32, fmt=None,
 
 def plot_examine_diff_diff(t, duration=30000, mask=32, fmt=None,
         country_set=None, oddballs=True, fname="", ccache=None, loops=2,
-        gap=0, thresh=10):
+        gap=0, thresh=10, maxmissing=0):
     '''
     lines:  1) domain independent cdf of ALL matches
             2-n) cdf of matches for domain with answer space > thresh
             n-m) cdf of matches for ALL domains with answer space < thresh
     '''
     svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
-            fmt, country_set, oddballs)
+            fmt, country_set, oddballs, maxmissing)
     keys = svld.keys()
 
     sm = mv.examine_diff_diff(svld)
@@ -460,9 +496,9 @@ def plot_examine_diff_diff(t, duration=30000, mask=32, fmt=None,
 
 def plot_measure_expansion(t, duration=30000, mask=32, fmt=None,
         country_set=None, oddballs=True, fname="", ccache=None, loops=10,
-        gap=0, thresh=10):
+        gap=0, thresh=10, maxmissing=0):
     svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
-            fmt, country_set, oddballs)
+            fmt, country_set, oddballs, maxmissing)
     keys = svld.keys()
 
     counts = mv.measure_expansion(svld)

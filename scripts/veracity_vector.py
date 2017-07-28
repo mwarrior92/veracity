@@ -418,9 +418,7 @@ def closeness(a, b):
             overlap = set(a[dom]).intersection(set(b[dom]))
             aweight = [a[dom][z] for z in a[dom] if z in overlap]
             bweight = [b[dom][z] for z in b[dom] if z in overlap]
-            #n += sum(aweight+bweight)/domtotal
-            if len(overlap) > 0:
-                n += 1
+            n += sum(aweight+bweight)/domtotal
         return n/d
 
 
@@ -509,6 +507,9 @@ def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
 
 
 def reduce_svl(svl, fmt, maxmissing=0):
+    '''
+    :return: new svl that only contains clients that are missing upto mxli
+    '''
     out_svl = list()
     sfmt = set(fmt)
     for sv in svl:
