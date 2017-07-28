@@ -1,4 +1,5 @@
 from warriorpy.shorthand import diriofile as df
+from warriorpy.shorthand import vinegar as vngr
 from warriorpy.net_tools import ipparsing as ipp
 from warriorpy.net_tools import dns_tools as dt
 import numpy as np
@@ -6,6 +7,9 @@ from pymongo import MongoClient
 from IPy import IP
 from collections import defaultdict
 import math
+import cPickle as pickle
+import pprint
+import numbers
 
 """
 class for answer vectors
@@ -45,13 +49,14 @@ basedir = df.getdir(__file__)+'../'
 rawdirlist = df.getlines(basedir+'state/datapaths.list')
 datafiles = df.listfiles(basedir+rawdirlist[0], fullpath=True)
 
-domains = df.getlines(basedir+'state/sites.csv')
-
 # database setup
 mclient = MongoClient()
 db = mclient.veracity
 data = db.m30002_may17_full
 pdata = db.probe_data
+
+#printing
+pp = pprint.PrettyPrinter(indent=4)
 
 ##################################################################
 #                           CODE
@@ -60,6 +65,7 @@ pdata = db.probe_data
 
 # Probes happen to query certain domains multiple times back-to-back for
 # some reason; in these cases, I will take only their first query
+
 def get_window(start_time, duration, domain_set=None, country_set=None):
     '''
     :param start_time: int indicating the earliest query the window should include
@@ -71,49 +77,49 @@ def get_window(start_time, duration, domain_set=None, country_set=None):
         If None, then all countries will be inluded
     :return: dictionary, where each entry is a mongodb doc containing a DNS query
     '''
-    cmd = [
-            {"$match": {
+
+    match = {"$match": {
                 "time": {
                         "$gte": start_time,
                         "$lt": start_time+duration
                         },
                 "ipv4.answer_ip_list": {"$exists": True}
                 }
-            },
-            {"$sort": {"ind": 1}},
-            {"$group": {
+            }
+    group1 = {"$group": {
                 "_id": {
-                    "probe_ip": "$probe_ip",
                     "probe_id": "$probe_id",
                     "domain": "$domain"
                     },
-                "answers": {"$first": "$ipv4.answer_ip_list"},
-                "ind": {"$first": "$ind"}
-                },
-            }
-        ]
-    if country_set is not None:
+                "answers": { "$push": "$ipv4.answer_ip_list" },
+                "ind": { "$addToSet": "$ind"},
+                "probe_ip": {"$addToSet": "$probe_ip"}
+                }
+             }
+    unwind = {"$unwind": "$answers"}
+    group2 = {"$group": {
+                "_id": "$_id",
+                "answers": {"$push": "$answers"},
+                "ind": {"$first": "$ind"},
+                "probe_ip": {"$first": "$probe_ip"}
+                }
+             }
+    group3 = {"$group": {
+                "_id": "$_id.probe_id",
+                "domains": {"$push": "$_id.domain"},
+                "answers": {"$push": "$answers"},
+                "ind": {"$push": "$ind"},
+                "probe_ip": {"$addToSet": "$probe_ip"}
+                }
+             }
+
+    cmd = [match, group1, unwind, unwind, group2, group3]
+    if type(country_set) is list:
         cmd[0]["$match"]["country"] = {"$in": country_set}
-    if domain_set is not None:
+    if type(domain_set) is list:
         cmd[0]["$match"]["domain"] = {"$in": domain_set}
     res = data.aggregate(cmd, allowDiskUse=True)
     return res
-
-
-# convert from set of raw documents from single time block to dictionary of
-# domains vs answer-sets. If there is more than one answer for a domain
-def window_to_dicts(window):
-    '''
-    :window: dict, where each entry is a mongodb doc containing a DNS query
-    :return: dict: {probe_ip: {domain: answers}, {inds_domain: [ind list]}}
-    '''
-    d = defaultdict(lambda: defaultdict(list))
-    #for doc in list(window):
-    for doc in window:
-        if len(doc['answers']) > 0:
-            d[doc['_id']['probe_ip']]['inds_'+doc['_id']['domain']].append(doc['ind'])
-            d[doc['_id']['probe_ip']][doc['_id']['domain']] += doc['answers']
-    return d
 
 
 def transform_fmt(fmt, doms=None):
@@ -125,8 +131,6 @@ def transform_fmt(fmt, doms=None):
     :param doms: list of all domains; if None, reads from file
     :return: list of domains
     '''
-    if doms is None:
-        doms = domains
 
     if fmt is None:
         fmt = doms
@@ -138,7 +142,7 @@ def transform_fmt(fmt, doms=None):
     return fmt
 
 
-def dicts_to_svl(dd, fmt=None, mask=32, oddballs=False):
+def dicts_to_svl(dd, mask=32, oddballs=False):
     '''
     :param dd:  output from window_to_dicts()
     :param fmt: see transform fmt
@@ -149,17 +153,27 @@ def dicts_to_svl(dd, fmt=None, mask=32, oddballs=False):
 
     convert dicts to list of smartvecs
     '''
-    fmt = transform_fmt(fmt)
     svl = list()
-    for probe_ip in dd:
-        if probe_ip == "":
+    anssets = defaultdict(set)
+    for probe in dd:
+        if len(probe['probe_ip']) == 0:
             continue
-        tmp = smartvec(dd[probe_ip], probe_ip, fmt,
-            mask, oddballs)
-        if len(set(tmp.vec).symmetric_difference(set(fmt))) < min([3, len(fmt)]):
-            # if vec isn't missing anything, keep it
-            svl.append(tmp)
-    return svl
+        if len(probe['probe_ip'][0]) == 0:
+            continue
+        noip = True
+        for i in xrange(0, len(probe['probe_ip'])):
+            if noip:
+                for j in xrange(0, len(probe['probe_ip'][i])):
+                    if isinstance(probe['probe_ip'][i][j], numbers.Number):
+                        noip = False
+                        break
+        if noip:
+            continue
+        svl.append(smartvec(probe, mask, oddballs))
+        for i, dom in enumerate(probe['domains']):
+            anssets[dom] |= set(probe['answers'][i])
+    doms = sorted(anssets.keys(), key=lambda z: len(anssets[z]))
+    return svl, doms, anssets
 
 
 def country_svl(svl):
@@ -226,7 +240,7 @@ def prefix_svl(svl):
 
 
 class smartvec:
-    def __init__(self, d, probe_ip, fmt=None, mask=32, oddballs=False):
+    def __init__(self, d, mask=32, oddballs=False):
         '''
         :param d: a single subdict d from the dict dd output from
             window_to_dicts()
@@ -242,23 +256,31 @@ class smartvec:
             comparisons, separate sv's should be constructed
         '''
         self.vec = defaultdict(lambda: defaultdict(float)) # {domain: {ans: cum. weight}}
-        fmt = transform_fmt(fmt)
         fmtmask = ipp.make_v4_prefix_mask(mask)
-        for dom in fmt:
-            if dom in d:
-                query_count = float(len(d['inds_'+dom]))
-                answer_count = float(len(d[dom]))
-                for ip in d[dom]:
-                    ipm = ip & fmtmask
-                    ipstr = ipp.int2ip(ipm)
-                    if IP(ipstr+"/32").iptype() == "PUBLIC" or oddballs:
-                        self.vec[dom][ipm] += query_count / answer_count
+        self.inds = dict()
+        for i, dom in enumerate(d['domains']):
+            query_count = float(len(d['ind'][i]))
+            answer_count = float(len(d['answers'][i]))
+            self.inds[dom] = d['ind'][i]
+            for ip in d['answers'][i]:
+                ipm = ip & fmtmask
+                ipstr = ipp.int2ip(ipm)
+                if IP(ipstr+"/32").iptype() == "PUBLIC" or oddballs:
+                    self.vec[dom][ipm] += query_count / answer_count
+            self.vec[dom] = dict(self.vec[dom])
+        self.vec = dict(self.vec)
         self.mask = mask
-        self.ip = probe_ip
+        self.ip = set()
+        for ipset in d['probe_ip']:
+            for ip in ipset:
+                if not isinstance(ip, numbers.Number):
+                    continue
+                self.ip.add(ip)
+        self.id = d['_id']
 
 
     def __repr__(self):
-        return "smartvec(ip="+ipp.int2ip(self.ip)+")"
+        return "smartvec(ip="+ipp.int2ip(self.get_ip())+")"
 
 
     def __str__(self):
@@ -269,7 +291,11 @@ class smartvec:
 
 
     def get_ip(self):
-        return ipp.int2ip(self.ip)
+        return list(self.ip)[0]
+
+
+    def get_ip_str(self):
+        return ipp.int2ip(self.get_ip())
 
 
     def get_answers(self, dom):
@@ -280,11 +306,11 @@ class smartvec:
 
     def get_subnet(self, mask):
         fmtmask = ipp.make_v4_prefix_mask(mask)
-        return ipp.int2ip(self.ip & fmtmask)
+        return ipp.int2ip(self.get_ip() & fmtmask)
 
 
     def get_probe_info(self):
-        tmp = list(pdata.find({'probe_ip': self.ip}).limit(1))
+        tmp = list(pdata.find({'probe_ip': self.get_ip()}).limit(1))
         if len(tmp) > 0:
             return tmp[0]
         else:
@@ -308,11 +334,7 @@ class smartvec:
 
 
     def get_id(self):
-        tmp = self.get_probe_info()
-        if tmp is not None:
-            return tmp['probe_id']
-        else:
-            return None
+        return self.id
 
 
     def get_prefix(self):
@@ -324,7 +346,7 @@ class smartvec:
 
 
     def get_owner(self):
-        return dt.get_owner_name(ipp.int2ip(self.ip))
+        return dt.get_owner_name(ipp.int2ip(self.get_ip()))
 
 
     def sees_private_self(self):
@@ -396,7 +418,9 @@ def closeness(a, b):
             overlap = set(a[dom]).intersection(set(b[dom]))
             aweight = [a[dom][z] for z in a[dom] if z in overlap]
             bweight = [b[dom][z] for z in b[dom] if z in overlap]
-            n += sum(aweight+bweight)/domtotal
+            #n += sum(aweight+bweight)/domtotal
+            if len(overlap) > 0:
+                n += 1
         return n/d
 
 
@@ -415,42 +439,6 @@ def get_cl(svl, cc=None):
     return cl
 
 
-def get_domains(dd):
-    '''
-    :param dd: output from window_to_dicts()
-    :return: list of domains
-
-    obtains list of domains from window of queries being observed
-    '''
-    doms = set()
-    for probe in dd:
-        doms |= set([z for z in dd[probe] if 'inds_' not in z])
-    return list(doms)
-
-
-def get_answer_space_dict(dd, fmt=None):
-    '''
-    :param dd: output from window_to_dicts() or svl
-    :param fmt: see transform fmt
-    :return: dict {domain: number of IPs observed}
-    '''
-    anssets = defaultdict(set)
-    fmt = transform_fmt(fmt)
-    if type(dd) is dict or type(dd) is defaultdict:
-        for probe in dd:
-            for dom in fmt:
-                if dom in dd[probe]:
-                    anssets[dom] |= set(dd[probe][dom])
-    elif type(dd) is list:
-        for sv in dd:
-            for dom in fmt:
-                if dom in sv:
-                    anssets[dom] |= set(sv.vec[dom])
-    else:
-        logger.error('dd is of wrong type... should be dd dict or svl')
-    return anssets
-
-
 def get_probe_space(dd, fmt=None):
     '''
     :param dd: output from window_to_dicts()
@@ -463,7 +451,6 @@ def get_probe_space(dd, fmt=None):
         for dom in fmt:
             if dom in dd[probe]:
                 ps[dom] += 1
-    print ps
     return ps
 
 
@@ -480,28 +467,9 @@ def get_weighting(anssets):
     return wd
 
 
-def sort_sites(anssets):
-    '''
-    :param anssets: output from get_answer_space_dict()
-    :return: list of domains, sorted by number of IPs observed from each
-        domain
-    '''
-    spacelist = [(z,len(anssets[z])) for z in anssets]
-
-    sl = sorted(spacelist, key=lambda z: z[1])
-    for val in sl:
-        print "***************"+str(val)+"******************"
-        if val[0] == 'google.com.':
-            tmp = sorted(anssets[val[0]])
-            for ip in tmp:
-                print ipp.int2ip(ip)
-    sl = [z[0] for z in sl]
-
-    return sl
-
-
+@vngr.cache_me_outside
 def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
-        oddballs=False):
+        oddballs=True, maxmissing=0):
     '''
     :param start_time: int indicating the earliest query the window should include
     :param duration: int indication the span of time covered by the window,
@@ -514,33 +482,40 @@ def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
         False, will only include public IPs
     :return: list of smartvecs
     '''
-    window = get_window(t, duration, country_set=country_set)
-    dd = window_to_dicts(window)
-    global domains
-    domains = get_domains(dd)
-    print domains
-    anssets = get_answer_space_dict(dd)
-    sl = sort_sites(anssets)
-    fmt = transform_fmt(fmt, sl)
+    logger.info("->window...")
+    window = get_window(t, duration, country_set=country_set, domain_set=fmt)
 
+    logger.info("->svl...")
+    svl, doms, anssets = dicts_to_svl(window, mask, oddballs)
+
+    logger.debug(str(doms))
+
+    fmt = transform_fmt(fmt, doms)
     # remove any domains that only have 1 IP (since all nodes will see the
     # same thing)
     for dom in fmt:
         if len(anssets[dom]) < 2 or ('google' in dom and dom != 'google.com.'):
             del anssets[dom]
     fmt = list(set(anssets.keys()).intersection(set(fmt)))
+    svl = reduce_svl(svl, fmt, maxmissing)
 
-    ps = get_probe_space(dd, fmt)
-    svl = dicts_to_svl(dd, fmt, mask, oddballs)
-    '''
     for dom in fmt:
-        print "-----------"+dom+"-----------"
+        logger.debug("-----------"+dom+"-----------")
         tmp = sorted(anssets[dom])
         for val in tmp:
             if type(val) is int:
-                print ipp.int2ip(val)
-    '''
-    return svl, fmt
+                logger.debug(ipp.int2ip(val))
+    return svl, fmt, dict(anssets)
+
+
+def reduce_svl(svl, fmt, maxmissing=0):
+    out_svl = list()
+    sfmt = set(fmt)
+    for sv in svl:
+        sdoms = set(sv.vec.keys())
+        if len(sfmt.difference(sdoms)) <= maxmissing:
+            out_svl.append(sv)
+    return out_svl
 
 
 class closeness_cache:
@@ -552,7 +527,7 @@ class closeness_cache:
         self.tmp_item = None
 
     def get_closeness(self, a, b):
-        key = tuple(sorted([a.ip, b.ip]))
+        key = tuple(sorted([a.id, b.id]))
         if key in self.cache:
             return self.cache[key]
         else:

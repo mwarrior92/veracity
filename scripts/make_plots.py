@@ -37,10 +37,61 @@ plotsdir = df.rightdir(basedir+"plots/")
 ##################################################################
 
 
+def plot_optimizing_window(t, duration=30000, mask=32, fmt=None,
+        country_set=None, oddballs=True, fname="", xlim=None,
+        maxdur=90000*15, incr=30000):
+
+    allvals = list()
+    allbars = list()
+    allx = list()
+    dur = duration
+    while dur < maxdur:
+        ccache = vv.init_ccache()
+        print "getting svls..."
+        svl, _, _ = vv.get_svl(t, dur, mask, fmt, country_set, oddballs)
+        svl1 = dict()
+        for sv in svl:
+            svl1[sv.id] = sv
+        svl, _, _ = vv.get_svl(t+dur, dur, mask, fmt, country_set, oddballs)
+        svl2 = dict()
+        for sv in svl:
+            svl2[sv.id] = sv
+
+        print "calculating closeness for subnets...", dur
+        vals = list()
+        for pid in svl1:
+            if pid in svl2:
+                vals.append(vv.closeness(svl1[pid], svl2[pid]))
+
+        allvals.append(np.mean(vals))
+        allbars.append(np.std(vals))
+        allx.append(float(dur)/(60.0*60.0*8.0))
+        dur += incr
+
+
+
+    fig, ax = plt.subplots(1, 1)
+    ax.errorbar(allx, allvals, yerr=allbars)
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=xlim)
+    plt.xlabel("# 8 hour cycles in block duration")
+    plt.ylabel("average self closeness")
+    lgd = ps.legend_setup(ax, 4, "top center", True)
+    filename = plotsdir+"avg_self_closeness"+fname
+    fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    plt.close(fig)
+
+    print "saving data..."
+    outstr = df.overwrite(statedir+fname+'_avg_self_closeness.csv',
+            df.list2col(allvals))
+
+    return ccache
+
+
 def plot_closeness_diff_desc(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", ccache=None):
+        country_set=None, oddballs=True, fname="", ccache=None, xlim=[.6, 1.0]):
     print "getting svl..."
-    svl, fmt = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
     print len(svl)
 
     print "getting descriptor lists..."
@@ -107,7 +158,7 @@ def plot_closeness_diff_desc(t, duration=30000, mask=32, fmt=None,
         x = list(ecdf.x)
         y = list(ecdf.y)
         ax.plot(x, y, label=labels[i])
-    ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=[.6, 1.0])
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=xlim)
     plt.xlabel("pairwise probe closeness")
     plt.ylabel("CDF of pairs")
     lgd = ps.legend_setup(ax, 4, "top center", True)
@@ -125,9 +176,9 @@ def plot_closeness_diff_desc(t, duration=30000, mask=32, fmt=None,
 
 
 def plot_closeness_same_desc(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", ccache=None):
+        country_set=None, oddballs=True, fname="", ccache=None, xlim=[.6, 1.0]):
     print "getting svl..."
-    svl, fmt = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
 
     print "getting descriptor lists..."
     csvl = vv.country_svl(svl)
@@ -193,7 +244,7 @@ def plot_closeness_same_desc(t, duration=30000, mask=32, fmt=None,
         x = list(ecdf.x)
         y = list(ecdf.y)
         ax.plot(x, y, label=labels[i])
-    ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=[.6, 1.0])
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=xlim)
     plt.xlabel("pairwise probe closeness")
     plt.ylabel("CDF of pairs")
     lgd = ps.legend_setup(ax, 4, "top center", True)
@@ -214,7 +265,7 @@ def plot_csize_vs_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
         oddballs=True, fname=""):
 
     print "getting svl"
-    svl, fmt = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
     print "calling csize vs mc"
     x, y = vg.csize_vs_mc(svl, np.arange(.45, .65, .01))
     plt.figure(figsize=(15, 10))
@@ -227,7 +278,7 @@ def plot_csize_vs_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
 def plot_ccount_vs_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
         oddballs=True, fname=""):
 
-    svl, fmt = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
     x, y = vg.ccount_vs_mc(svl, np.arange(.45, .48, .01))
     plt.figure(figsize=(15, 10))
     plt.xlabel('minimum closeness')
@@ -240,7 +291,7 @@ def inv_hist(t, duration=30000, mask=32, fmt=None, country_set=None,
         oddballs=True, fname="", thresh=.35):
 
     logger.info("getting svl...")
-    svl, fmt = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
+    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs)
     logger.info("getting ipsl...")
     ipsl, dompairs = get_ip_sets(svl)
     logger.info("getting pairing counts...")
@@ -279,12 +330,10 @@ def plot_self_match(t, duration=6*30000, mask=32, fmt=None,
             2-n) cdf of matches for domain with answer space > thresh
             n-m) cdf of matches for ALL domains with answer space < thresh
     '''
-    svld, allsvl, allfmt = mv.arrange_self_data(t, duration, gap, loops, mask,
+    svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
             fmt, country_set, oddballs)
     keys = svld.keys()
-    anssets = vv.get_answer_space_dict(allsvl, allfmt)
 
-    #anssets = vv.get_answer_space_dict(allsvl, allfmt)
     sm = mv.self_match(svld)
     vals = [[], []]
     labels = ['all', 'small']
@@ -327,12 +376,10 @@ def plot_examine_self_diff(t, duration=30000, mask=32, fmt=None,
             2-n) cdf of matches for domain with answer space > thresh
             n-m) cdf of matches for ALL domains with answer space < thresh
     '''
-    svld, allsvl, allfmt = mv.arrange_self_data(t, duration, gap, loops, mask,
+    svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
             fmt, country_set, oddballs)
     keys = svld.keys()
-    anssets = vv.get_answer_space_dict(allsvl, allfmt)
 
-    #anssets = vv.get_answer_space_dict(allsvl, allfmt)
     sm = mv.examine_self_diff(svld)
     vals = [[], []]
     labels = ['all', 'small']
@@ -346,8 +393,6 @@ def plot_examine_self_diff(t, duration=30000, mask=32, fmt=None,
 
     fig, ax = plt.subplots(1, 1)
     for i in xrange(0, len(vals)):
-        print "*****************"+labels[i]+"*********************"
-        print vals[i]
         ecdf = ECDF(vals[i])
         x = list(ecdf.x)
         y = list(ecdf.y)
@@ -375,12 +420,10 @@ def plot_examine_diff_diff(t, duration=30000, mask=32, fmt=None,
             2-n) cdf of matches for domain with answer space > thresh
             n-m) cdf of matches for ALL domains with answer space < thresh
     '''
-    svld, allsvl, allfmt = mv.arrange_self_data(t, duration, gap, loops, mask,
+    svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
             fmt, country_set, oddballs)
     keys = svld.keys()
-    anssets = vv.get_answer_space_dict(allsvl, allfmt)
 
-    #anssets = vv.get_answer_space_dict(allsvl, allfmt)
     sm = mv.examine_diff_diff(svld)
     vals = [[], []]
     labels = ['all', 'small']
@@ -418,7 +461,7 @@ def plot_examine_diff_diff(t, duration=30000, mask=32, fmt=None,
 def plot_measure_expansion(t, duration=30000, mask=32, fmt=None,
         country_set=None, oddballs=True, fname="", ccache=None, loops=10,
         gap=0, thresh=10):
-    svld, allsvl, allfmt = mv.arrange_self_data(t, duration, gap, loops, mask,
+    svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
             fmt, country_set, oddballs)
     keys = svld.keys()
 
@@ -426,8 +469,6 @@ def plot_measure_expansion(t, duration=30000, mask=32, fmt=None,
     domvals = defaultdict(lambda: defaultdict(list))
     allvals = defaultdict(list)
     smallvals = defaultdict(list)
-
-    anssets = vv.get_answer_space_dict(allsvl, allfmt)
 
     for c in counts:
         for dom in c:

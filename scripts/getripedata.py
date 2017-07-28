@@ -159,14 +159,14 @@ def append_db(fnum):
     global finished
     finished = True
     coll.insert_many(q)
-    logger.info("finished with fnum "+str(fnum))
+    logger.debug("finished with fnum "+str(fnum))
     return
 
 
 if __name__ == "__main__":
     for index, datafile in enumerate(datafiles):
         print datafile
-        logger.info("datafile: "+datafile)
+        logger.debug("datafile: "+datafile)
         finished = False
         while not finished:
             try:

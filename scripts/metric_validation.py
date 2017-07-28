@@ -42,19 +42,22 @@ plotsdir = df.rightdir(basedir+"plots/")
 def arrange_self_data(t, duration=30000, gap=1, loops=2, mask=32,
         fmt=None, country_set=None, oddballs=True):
 
-    svld = defaultdict(list) # dict {ip: [svl]}
+    svld = defaultdict(list) # dict {id: [svl]}
     allsvl = list()
     allfmt = set()
+    anssets = defaultdict(set)
 
     for l in xrange(0, loops):
-        svl, fmt2 = vv.get_svl(t+l*(gap+duration), duration, mask,
+        svl, fmt2, anssets2 = vv.get_svl(t+l*(gap+duration), duration, mask,
                 fmt, country_set, oddballs)
         allfmt |= set(fmt2)
+        for dom in anssets2:
+            anssets[dom] |= set(anssets2[dom])
         for i in xrange(0, len(svl)):
-            svld[svl[i].ip].append(svl[i])
+            svld[svl[i].id].append(svl[i])
             allsvl.append(svl[i])
 
-    return svld, allsvl, list(allfmt)
+    return svld, allsvl, list(allfmt), anssets
 
 
 def dom_traits(svld, anssets):
@@ -103,8 +106,8 @@ def dom_traits(svld, anssets):
             mpms.append(max(matches))
         dtd['pilpm'][int(round(log(np.mean(mpms),2)))][a] = True
 
-    for ip in svld:
-        svl = svld[ip]
+    for pid in svld:
+        svl = svld[pid]
         for sv in svl:
             for dom in sv:
                 dtd['ansm'][len(sv.vec[dom])][dom].append(sv)
@@ -129,12 +132,12 @@ def dom_traits(svld, anssets):
 def self_match(svld):
     sm = defaultdict(list) # {dom: [self match value]}
                             # one self match value per client per domain
-    for ip in svld:
+    for pid in svld:
         tmpsm = defaultdict(list)
-        for i in xrange(0, len(svld[ip])-1):
-            for j in xrange(i+1, len(svld[ip])):
-                A = svld[ip][i]
-                B = svld[ip][j]
+        for i in xrange(0, len(svld[pid])-1):
+            for j in xrange(i+1, len(svld[pid])):
+                A = svld[pid][i]
+                B = svld[pid][j]
                 for dom in [z for z in A if z in B]:
                     a = set(A.vec[dom])
                     b = set(B.vec[dom])
@@ -148,9 +151,9 @@ def self_match(svld):
 
 def measure_expansion(svld):
     allcounts = list()
-    for ip in svld:
+    for pid in svld:
         count = defaultdict(dict)
-        for sv in svld[ip]:
+        for sv in svld[pid]:
             for dom in sv:
                 ips = set(sv.vec[dom])
                 if dom not in count:
@@ -173,12 +176,12 @@ def measure_expansion(svld):
 def examine_self_diff(svld):
     sm = defaultdict(list) # {dom: [self match value]}
                             # one self match value per client per domain
-    for ip in svld:
+    for pid in svld:
         tmpsm = defaultdict(list)
-        for i in xrange(0, len(svld[ip])-1):
-            for j in xrange(i+1, len(svld[ip])):
-                A = svld[ip][i]
-                B = svld[ip][j]
+        for i in xrange(0, len(svld[id])-1):
+            for j in xrange(i+1, len(svld[pid])):
+                A = svld[pid][i]
+                B = svld[pid][j]
                 for dom in [z for z in A if z in B]:
                     a = set(A.vec[dom])
                     b = set(B.vec[dom])
@@ -201,14 +204,14 @@ def examine_self_diff(svld):
 def examine_diff_diff(svld):
     sm = defaultdict(list) # {dom: [self match value]}
                             # one self match value per client per domain
-    ips = svld.keys()
-    for p in xrange(0, len(ips)-1):
-        for q in xrange(p+1, len(ips)):
+    ids = svld.keys()
+    for p in xrange(0, len(ids)-1):
+        for q in xrange(p+1, len(ids)):
             tmpsm = defaultdict(list)
-            for i in xrange(0, len(svld[ips[p]])):
-                for j in xrange(0, len(svld[ips[q]])):
-                    A = svld[ips[p]][i]
-                    B = svld[ips[q]][j]
+            for i in xrange(0, len(svld[ids[p]])):
+                for j in xrange(0, len(svld[ids[q]])):
+                    A = svld[ids[p]][i]
+                    B = svld[ids[q]][j]
                     for dom in [z for z in A if z in B]:
                         a = set(A.vec[dom])
                         b = set(B.vec[dom])
@@ -227,48 +230,16 @@ def examine_diff_diff(svld):
             sm[dom].append(np.mean(tmpsm[dom]))
     return sm
 
-'''
-def measure_expansion(t, duration=30000, gap=1, loops=2, mask=32,
-        fmt=None, country_set=None, oddballs=True):
-    allcounts = list()
-    allfmt = set()
-    count = defaultdict(lambda: defaultdict(dict))
-    for l in xrange(0, loops):
-        svl, fmt2 = vv.get_svl(t+l*(gap+duration), duration, mask,
-                fmt, country_set, oddballs)
-        allfmt |= set(fmt2)
-        for sv in svl:
-            ip = sv.ip
-            for dom in sv:
-                ips = set(sv.vec[dom])
-                if dom not in count[ip]:
-                    count[ip][dom]['ips'] = set()
-                    count[ip][dom]['new_ips'] = list()
-                    count[ip][dom]['old_ips'] = list()
-                    count[ip][dom]['size'] = list()
-                    count[ip][dom]['ratio'] = list()
-                intsn = count[dom]['ips'].intersection(ips)
-                count[ip][dom]['new_ips'].append(len(ips) - len(intsn))
-                count[ip][dom]['old_ips'].append(len(intsn))
-                count[ip][dom]['ips'] |= ips
-                count[ip][dom]['size'].append(len(count[ip][dom]['ips']))
-                count[ip][dom]['ratio'].append(float(count[ip][dom]['new_ips'][-1])/float(len(ips)))
-    for ip in count:
-        allcounts.append(count[ip])
-
-    return allcounts
-'''
-
 
 def examine_self_diff(svld):
     sm = defaultdict(list) # {dom: [self match value]}
                             # one self match value per client per domain
-    for ip in svld:
+    for pid in svld:
         tmpsm = defaultdict(list)
-        for i in xrange(0, len(svld[ip])-1):
-            for j in xrange(i+1, len(svld[ip])):
-                A = svld[ip][i]
-                B = svld[ip][j]
+        for i in xrange(0, len(svld[pid])-1):
+            for j in xrange(i+1, len(svld[pid])):
+                A = svld[pid][i]
+                B = svld[pid][j]
                 for dom in [z for z in A if z in B]:
                     a = set(A.vec[dom])
                     b = set(B.vec[dom])
@@ -291,14 +262,14 @@ def examine_self_diff(svld):
 def examine_diff_diff(svld):
     sm = defaultdict(list) # {dom: [self match value]}
                             # one self match value per client per domain
-    ips = svld.keys()
-    for p in xrange(0, len(ips)-1):
-        for q in xrange(p+1, len(ips)):
+    ids = svld.keys()
+    for p in xrange(0, len(ids)-1):
+        for q in xrange(p+1, len(ids)):
             tmpsm = defaultdict(list)
-            for i in xrange(0, len(svld[ips[p]])):
-                for j in xrange(0, len(svld[ips[q]])):
-                    A = svld[ips[p]][i]
-                    B = svld[ips[q]][j]
+            for i in xrange(0, len(svld[ids[p]])):
+                for j in xrange(0, len(svld[ids[q]])):
+                    A = svld[ids[p]][i]
+                    B = svld[ids[q]][j]
                     for dom in [z for z in A if z in B]:
                         a = set(A.vec[dom])
                         b = set(B.vec[dom])

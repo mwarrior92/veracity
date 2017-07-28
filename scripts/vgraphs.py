@@ -44,7 +44,7 @@ def add_closeness_edges(svl, ccache, G=None):
         G = nx.Graph()
     for i in xrange(0, len(svl)-1):
         for j in xrange(i+1, len(svl)):
-            G.add_edge((svl[i].ip, i), (svl[j].ip, j),
+            G.add_edge((svl[i].id, i), (svl[j].id, j),
                     weight=ccache[svl[i]][svl[j]])
     return G
 
