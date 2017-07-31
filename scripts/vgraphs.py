@@ -73,7 +73,7 @@ def get_connected_comps(svl, min_closeness, ccache):
     return nx.connected_components(G)
 
 
-def get_cc_varying_mc(svl, mwl, ccache=None):
+def get_cc_varying_mc(svl, mwl, ccache):
     '''
     :param svl: list of smartvecs
     :param mwl: list of min_weight thresholds for which edges are kept
@@ -83,14 +83,13 @@ def get_cc_varying_mc(svl, mwl, ccache=None):
         in mwl
     '''
     ccl = list()
-    ccache = vv.init_ccache(ccache)
     for min_closeness in mwl:
         print min_closeness
         ccl.append(get_connected_comps(svl, min_closeness, ccache))
     return ccl
 
 
-def csize_vs_mc(svl, mwl, ccache=None):
+def csize_vs_mc(svl, mwl, ccache):
     '''
     :param svl: list of smartvecs
     :param mwl: list of min_weight thresholds for which edges are kept
@@ -107,7 +106,7 @@ def csize_vs_mc(svl, mwl, ccache=None):
     return X, Y
 
 
-def ccount_vs_mc(svl, mwl, ccache=None):
+def ccount_vs_mc(svl, mwl, ccache):
     '''
     :param svl: list of smartvecs
     :param mwl: list of min_weight thresholds for which edges are kept
@@ -120,13 +119,14 @@ def ccount_vs_mc(svl, mwl, ccache=None):
     for i in xrange(0, len(mwl)):
         tmp = list(ccl[i])
         Y.append(len(tmp))
+        print "################", mwl[i], "################"
         if len(tmp) > 1:
             for g in xrange(0, len(tmp)):
                 print "************* group "+str(g)+" ****************"
                 countries = [svl[z[1]].get_country() for z in tmp[g]]
                 for c in set(countries):
                     count = float(len([z for z in countries if z==c]))
-                    print c+": "+str(100.0*count/float(len(tmp[g])))+"%"
+                    print c+": "+str(100.0*count/float(len(tmp[g])))+"%", count
             print "---------------------------------------------\n"
         X.append(mwl[i])
     return X, Y

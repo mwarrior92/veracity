@@ -10,6 +10,7 @@ import math
 import cPickle as pickle
 import pprint
 import numbers
+import time
 
 """
 class for answer vectors
@@ -46,8 +47,10 @@ logger.debug(__name__+"logger loaded")
 
 # paths
 basedir = df.getdir(__file__)+'../'
+statedir = df.rightdir(basedir+"state/")
 rawdirlist = df.getlines(basedir+'state/datapaths.list')
 datafiles = df.listfiles(basedir+rawdirlist[0], fullpath=True)
+vngr.set_cache_dir(df.rightdir(statedir+"pickles"))
 
 # database setup
 mclient = MongoClient()
@@ -244,7 +247,6 @@ class smartvec:
         '''
         :param d: a single subdict d from the dict dd output from
             window_to_dicts()
-        :param fmt: see transform fmt
         :param mask: prefix mask t use on domain IPs
         :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
             False, will only include public IPs
@@ -267,7 +269,10 @@ class smartvec:
                 ipstr = ipp.int2ip(ipm)
                 if IP(ipstr+"/32").iptype() == "PUBLIC" or oddballs:
                     self.vec[dom][ipm] += query_count / answer_count
-            self.vec[dom] = dict(self.vec[dom])
+            if len(self.vec[dom]) > 0:
+                self.vec[dom] = dict(self.vec[dom])
+            else:
+                del self.vec[dom]
         self.vec = dict(self.vec)
         self.mask = mask
         self.ip = set()
@@ -310,7 +315,7 @@ class smartvec:
 
 
     def get_probe_info(self):
-        tmp = list(pdata.find({'probe_ip': self.get_ip()}).limit(1))
+        tmp = list(pdata.find({'probe_id': self.get_id()}).limit(1))
         if len(tmp) > 0:
             return tmp[0]
         else:
@@ -469,7 +474,7 @@ def get_weighting(anssets):
 def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
         oddballs=True, maxmissing=0):
     '''
-    :param start_time: int indicating the earliest query the window should include
+    :param t: int indicating the earliest query the window should include
     :param duration: int indication the span of time covered by the window,
         in seconds
     :param mask: int, prefix mask to use over domain IPs
@@ -523,9 +528,13 @@ class closeness_cache:
     '''
     cache so that closeness calculations don't have to be repeated
     '''
-    def __init__(self):
+    def __init__(self, f):
         self.cache = dict()
         self.tmp_item = None
+        self.f = f
+        self.hash = "random"
+        self.indirect_cache = dict()
+        self.changed = False
 
     def get_closeness(self, a, b):
         key = tuple(sorted([a.id, b.id]))
@@ -534,6 +543,7 @@ class closeness_cache:
         else:
             tmp = closeness(a, b)
             self.cache[key] = tmp
+            self.changed = True
             return tmp
 
     def __getitem__(self, b):
@@ -546,10 +556,36 @@ class closeness_cache:
             self.tmp_item = None
             return self.get_closeness(a, b)
 
+    def load(self, *args, **kwargs):
+        cache = df.picklein(self.f)
+        invals = df.make_hashable(list(args)+zip(kwargs.keys(), kwargs.values()))
+        self.hash = invals
+        if cache is not None:
+            self.indirect_cache = cache
+            if invals in cache:
+                self.cache = df.picklein(cache[invals])
 
-def init_ccache(ccache=None):
+    def dump(self):
+        if self.changed:
+            invals = self.hash
+            cache = self.indirect_cache
+            if invals not in cache:
+                cache[invals] = df.rightdir(statedir+"pickles")+"closeness"+str(time.time())+".pickle"
+                df.pickleout(self.f, cache)
+            df.pickleout(cache[invals], self.cache)
+
+
+def init_ccache(ccache, f, *args, **kwargs):
     if ccache is None:
-        return closeness_cache()
+        c = closeness_cache(f)
+        c.load(*args, **kwargs)
+        return c
     else:
         return ccache
 
+
+def dump_ccache(*args, **kwargs):
+    f = kwargs['ccfile']
+    cache = df.picklein(f)
+    invals = df.make_hashable(list(args)+zip(kwargs.keys(), kwargs.values()))
+    c

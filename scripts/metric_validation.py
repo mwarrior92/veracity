@@ -50,6 +50,7 @@ def arrange_self_data(t, duration=30000, gap=1, loops=2, mask=32,
     for l in xrange(0, loops):
         svl, fmt2, anssets2 = vv.get_svl(t+l*(gap+duration), duration, mask,
                 fmt, country_set, oddballs, maxmissing)
+        logger.warning("svl len: "+str(len(svl)))
         allfmt |= set(fmt2)
         for dom in anssets2:
             anssets[dom] |= set(anssets2[dom])
