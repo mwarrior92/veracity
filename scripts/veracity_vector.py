@@ -96,7 +96,8 @@ def get_window(start_time, duration, domain_set=None, country_set=None):
                     },
                 "answers": { "$push": "$ipv4.answer_ip_list" },
                 "ind": { "$addToSet": "$ind"},
-                "probe_ip": {"$addToSet": "$probe_ip"}
+                "probe_ip": {"$addToSet": "$probe_ip"},
+                "ldns": {"$addToSet": "$ipv4.perceived_ldns"}
                 }
              }
     unwind = {"$unwind": "$answers"}
@@ -104,7 +105,8 @@ def get_window(start_time, duration, domain_set=None, country_set=None):
                 "_id": "$_id",
                 "answers": {"$push": "$answers"},
                 "ind": {"$first": "$ind"},
-                "probe_ip": {"$first": "$probe_ip"}
+                "probe_ip": {"$first": "$probe_ip"},
+                "ldns": {"$first": "$ldns"}
                 }
              }
     group3 = {"$group": {
@@ -112,7 +114,8 @@ def get_window(start_time, duration, domain_set=None, country_set=None):
                 "domains": {"$push": "$_id.domain"},
                 "answers": {"$push": "$answers"},
                 "ind": {"$push": "$ind"},
-                "probe_ip": {"$addToSet": "$probe_ip"}
+                "probe_ip": {"$addToSet": "$probe_ip"},
+                "ldns": {"$addToSet": "$ldns"}
                 }
              }
 
@@ -281,7 +284,17 @@ class smartvec:
                 if not isinstance(ip, numbers.Number):
                     continue
                 self.ip.add(ip)
+        self.ldns = set()
+        for ipset in d['ldns']:
+            for ip in ipset:
+                if not isinstance(ip, numbers.Number):
+                    continue
+                self.ldns.add(ip)
+        self.ldns = list(self.ldns)
         self.id = d['_id']
+        self.probe_info = None
+        self.owner = None
+        t = self.get_ldns()
 
 
     def __repr__(self):
@@ -309,17 +322,21 @@ class smartvec:
         return None
 
 
-    def get_subnet(self, mask):
+    def get_subnet(self, mask=24):
         fmtmask = ipp.make_v4_prefix_mask(mask)
         return ipp.int2ip(self.get_ip() & fmtmask)
 
 
     def get_probe_info(self):
-        tmp = list(pdata.find({'probe_id': self.get_id()}).limit(1))
-        if len(tmp) > 0:
-            return tmp[0]
+        if self.probe_info is None:
+            tmp = list(pdata.find({'probe_id': self.get_id()}).limit(1))
+            if len(tmp) > 0:
+                self.probe_info = tmp[0]
+                return tmp[0]
+            else:
+                return None
         else:
-            return None
+            return self.probe_info
 
 
     def get_country(self):
@@ -338,6 +355,13 @@ class smartvec:
             return None
 
 
+    def get_ldns(self):
+        for ip in self.ldns:
+            if ipp.is_public(ip):
+                return ip
+        return self.ldns[0]
+
+
     def get_id(self):
         return self.id
 
@@ -351,8 +375,12 @@ class smartvec:
 
 
     def get_owner(self):
-        return dt.get_owner_name(ipp.int2ip(self.get_ip()))
+        if hasattr(self, "owner"):
+            if self.owner is not None:
+                return self.owner
+        self.owner = dt.get_owner_name(ipp.int2ip(self.get_ip()))
 
+        return self.owner
 
     def sees_private_self(self):
         tmp = self.get_probe_info()
@@ -377,6 +405,16 @@ class smartvec:
             pass
         else:
             pass
+
+    def get_coordinates(self):
+        tmp = self.get_probe_info()
+        if tmp is not None:
+            try:
+                return tmp['geometry']['coordinates']
+            except KeyError:
+                return None
+        else:
+            return None
 
 
     def uses_ecs(self):
@@ -499,7 +537,7 @@ def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
     for dom in fmt:
         if len(anssets[dom]) < 2 or ('google' in dom and dom != 'google.com.'):
             del anssets[dom]
-    fmt = list(set(anssets.keys()).intersection(set(fmt)))
+    fmt = sorted(list(set(anssets.keys()).intersection(set(fmt))))
     svl = reduce_svl(svl, fmt, maxmissing)
 
     for dom in fmt:
@@ -535,12 +573,16 @@ class closeness_cache:
         self.hash = "random"
         self.indirect_cache = dict()
         self.changed = False
+        self.hits = 0
+        self.misses = 0
 
     def get_closeness(self, a, b):
         key = tuple(sorted([a.id, b.id]))
         if key in self.cache:
+            self.hits += 1
             return self.cache[key]
         else:
+            self.misses += 1
             tmp = closeness(a, b)
             self.cache[key] = tmp
             self.changed = True
@@ -563,16 +605,31 @@ class closeness_cache:
         if cache is not None:
             self.indirect_cache = cache
             if invals in cache:
-                self.cache = df.picklein(cache[invals])
+                tmp = df.picklein(cache[invals])
+                if tmp is not None:
+                    self.cache = tmp
+                    self.hits = 0
+                    self.misses = 0
+                    logger.warning("loaded "+str(cache[invals]))
+                    return
+        logger.warning("fresh cache")
 
     def dump(self):
         if self.changed:
             invals = self.hash
             cache = self.indirect_cache
+            logger.warning("dumping, DO NOT ctrl-C!")
             if invals not in cache:
                 cache[invals] = df.rightdir(statedir+"pickles")+"closeness"+str(time.time())+".pickle"
                 df.pickleout(self.f, cache)
             df.pickleout(cache[invals], self.cache)
+            logger.warning("safe to ctrl-C")
+            self.changed = False
+            time.sleep(2)
+        if self.hits + self.misses > 0:
+            logger.debug("hit rate: "+ \
+                    str(float(self.hits)/float(self.hits+self.misses)) \
+                    +", total hits: "+str(self.hits))
 
 
 def init_ccache(ccache, f, *args, **kwargs):
@@ -584,8 +641,3 @@ def init_ccache(ccache, f, *args, **kwargs):
         return ccache
 
 
-def dump_ccache(*args, **kwargs):
-    f = kwargs['ccfile']
-    cache = df.picklein(f)
-    invals = df.make_hashable(list(args)+zip(kwargs.keys(), kwargs.values()))
-    c

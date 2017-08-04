@@ -4,6 +4,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import veracity_vector as vv
 import metric_validation as mv
+import clientcompare as cc
 import vgraphs as vg
 import networkx as nx
 from collections import defaultdict
@@ -42,7 +43,7 @@ ccachef = df.rightdir(statedir+"pickles/")+"ccache.pickle"
 
 
 def get_dendrogram(t, duration=30000, mask=32, fmt=None,
-        method="average", country_set=None, p=0, oddballs=False,
+        method="average", country_set=None, p=0, oddballs=True,
         fname='.pdf', maxmissing=0):
     '''
     :param t: int indicating the earliest query the window should include
@@ -65,7 +66,7 @@ def get_dendrogram(t, duration=30000, mask=32, fmt=None,
     '''
 
     X, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
     logger.warning("svl len: "+str(len(X)))
 
     dm = np.zeros((len(X) * (len(X) - 1)) // 2, dtype=np.double)
@@ -207,7 +208,7 @@ def plot_closeness_diff_desc(t, duration=30000, mask=32, fmt=None,
     #osvl = vv.owner_svl(svl)
     psvl = vv.prefix_svl(svl)
 
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
 
     print "calculating closeness for countries..."
     cvals = list()
@@ -314,7 +315,7 @@ def plot_closeness_same_desc(t, duration=30000, mask=32, fmt=None,
     #osvl = vv.owner_svl(svl)
     psvl = vv.prefix_svl(svl)
 
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
 
     print "calculating closeness for countries..."
     cvals = list()
@@ -413,7 +414,7 @@ def plot_csize_vs_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
 
     print "getting svl"
     svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
     print "calling csize vs mc"
     x, y = vg.csize_vs_mc(svl, np.arange(tmin, tmax, tinc), ccache)
     plt.figure(figsize=(15, 10))
@@ -430,7 +431,7 @@ def plot_ccount_vs_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
         tinc=.01):
 
     svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
-    ccache = vv.init_ccache(ccache, ccachef, t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
     x, y = vg.ccount_vs_mc(svl, np.arange(tmin, tmax, tinc), ccache)
     plt.figure(figsize=(15, 10))
     plt.xlabel('minimum closeness')
@@ -656,3 +657,70 @@ def plot_measure_expansion(t, duration=30000, mask=32, fmt=None,
     for i in xrange(0, len(vals)):
         outstr = df.overwrite(statedir+labels[i]+'newvssize.csv',
                 df.list2col(vals[i]))
+
+
+def plot_resolver_comparison(t, duration=30000, mask=32, fmt=None,
+        country_set=None, oddballs=True, fname="", xlim=[.6, 1.0],
+        maxmissing=0, rmask=16):
+    '''
+    :param t: int indicating the earliest query the window should include
+    :param duration: int indication the span of time covered by the window,
+        in seconds
+    :param mask: int, prefix mask to use over domain IPs
+    :param fmt: see transform fmt
+    :param country_set: the set of countries the window should include queries from.
+        If None, then all countries will be inluded
+    :param method: the linkage method to be used
+    :param p: dendrogram will show last p merged clusters
+    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
+        False, will only include public IPs
+    :param fname: string to be appended to end of plot file name
+    :param maxmissing: the maximum number of domains that can be missing
+        measurements for a client to still be included in this measurement
+    :returns: [country, ASN, subnet, prefix] pair dictionaries of closeness lists
+
+    gets pairwise closeness of probes with different descriptors to find odd
+    behavior (probes in difference descriptors with high closeness scores)
+
+    NOTE: writes data to files for conveniece
+    '''
+
+
+    print("getting svl...")
+    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    logger.warning("svl len: "+str(len(svl)))
+    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
+
+    nearbies = cc.nearby_probes_diff_ldns(svl, rmask)
+
+    vals = defaultdict(list)
+    fmtmask = ipp.make_v4_prefix_mask(rmask)
+    for group in nearbies:
+        for i in xrange(0, len(group)-1):
+            for j in xrange(i+1, len(group)):
+                a = group[i]
+                b = group[j]
+                closeness = ccache[a][b]
+                if a.get_ldns() & fmtmask == b.get_ldns() & fmtmask:
+                    vals['same LDNS'].append(closeness)
+                else:
+                    vals['diff LDNS'].append(closeness)
+    ccache.dump()
+
+    fig, ax = plt.subplots(1, 1)
+    for l in vals:
+        ecdf = ECDF(vals[l])
+        x = list(ecdf.x)
+        y = list(ecdf.y)
+        ax.plot(x, y, label=l)
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=xlim)
+    plt.xlabel("pairwise probe closeness")
+    plt.ylabel("CDF of pairs")
+    lgd = ps.legend_setup(ax, 4, "top center", True)
+    filename = plotsdir+"closeness_ldns"+fname
+    fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    plt.close(fig)
+
+
+
