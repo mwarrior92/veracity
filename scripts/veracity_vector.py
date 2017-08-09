@@ -245,6 +245,21 @@ def prefix_svl(svl):
     return psvl
 
 
+def ldns_svl(svl, rmask=32, allowPrivate=True):
+    '''
+    :param svl: list of smartvecs
+    :return: dict: {country: list of smartvecs}
+    '''
+    fmtmask = ipp.make_v4_prefix_mask(rmask)
+    csvl = defaultdict(list) # {country: svl}
+    for sv in svl:
+        ip = sv.get_ldns()
+        if isinstance(ip, numbers.Number):
+            if ipp.is_public(ip) or allowPrivate:
+                csvl[ip & fmtmask].append(sv)
+    return csvl
+
+
 class smartvec:
     def __init__(self, d, mask=32, oddballs=False):
         '''

@@ -31,7 +31,7 @@ plotsdir = df.rightdir(basedir+"plots/")
 #                           CODE
 ##################################################################
 
-def add_closeness_edges(svl, ccache, G=None):
+def add_closeness_edges(svl, ccache, G=None, minweight=0):
     '''
     :param svl: list of smartvecs
     :param ccache: closeness_cache
@@ -44,8 +44,9 @@ def add_closeness_edges(svl, ccache, G=None):
         G = nx.Graph()
     for i in xrange(0, len(svl)-1):
         for j in xrange(i+1, len(svl)):
-            G.add_edge((svl[i].id, i), (svl[j].id, j),
-                    weight=ccache[svl[i]][svl[j]])
+            w = ccache[svl[i]][svl[j]]
+            if w >= minweight:
+                G.add_edge(svl[i], svl[j], weight=w)
     return G
 
 
@@ -61,16 +62,40 @@ def remove_far_edges(G, min_weight):
     G.remove_edges_from(edges)
 
 
-def get_connected_comps(svl, min_closeness, ccache):
-    '''
-    :param svl: list of smartvecs
-    :param min_weight: float, all edges below this value will be removed
-    :param ccache: closeness_cache
-    :return: list connected components
-    '''
-    G = add_closeness_edges(svl, ccache)
-    remove_far_edges(G, min_closeness)
-    return nx.connected_components(G)
+def component_analysis(c):
+    countries = list()
+    prefixes = list()
+    resolvers = list()
+    subnets = list()
+    asns = list()
+    for sv in c:
+        countries.append(sv.get_country())
+        prefixes.append(sv.get_prefix())
+        resolvers.append(sv.get_ldns())
+        subnets.append(sv.get_subnet(24))
+        asns.append(sv.get_asn())
+
+    distro = [(z, countries.count(z)) for z in set(countries)]
+    country = max(distro, key=lambda z: z[1])
+    country = (country[0], float(country[1])/float(len(countries)))
+
+    distro = [(z, prefixes.count(z)) for z in set(prefixes)]
+    prefix = max(distro, key=lambda z: z[1])
+    prefix = (prefix[0], float(prefix[1])/float(len(countries)))
+
+    distro = [(z, resolvers.count(z)) for z in set(resolvers)]
+    resolver = max(distro, key=lambda z: z[1])
+    resolver = (resolver[0], float(resolver[1])/float(len(countries)))
+
+    distro = [(z, subnets.count(z)) for z in set(subnets)]
+    subnet = max(distro, key=lambda z: z[1])
+    subnet = (subnet[0], float(subnet[1])/float(len(countries)))
+
+    distro = [(z, asns.count(z)) for z in set(asns)]
+    asn = max(distro, key=lambda z: z[1])
+    asn = (asn[0], float(asn[1])/float(len(countries)))
+
+    return country, prefix, resolver, subnet, asn
 
 
 def get_cc_varying_mc(svl, mwl, ccache):
@@ -83,53 +108,82 @@ def get_cc_varying_mc(svl, mwl, ccache):
         in mwl
     '''
     ccl = list()
-    for min_closeness in mwl:
-        print min_closeness
-        ccl.append(get_connected_comps(svl, min_closeness, ccache))
+    G = add_closeness_edges(svl, ccache, minweight=mwl[0])
+    cc = nx.connected_components(G)
+
+    countries = list()
+    prefixes = list()
+    resolvers = list()
+    subnets = list()
+    asns = list()
+    lens = list()
+    count = 0
+    tinycs = list()
+    for c in cc:
+        if len(c) > 1:
+            country, prefix, resolver, subnet, asn = component_analysis(c)
+            countries.append(country[1])
+            prefixes.append(prefix[1])
+            resolvers.append(resolver[1])
+            subnets.append(subnet[1])
+            asns.append(asn[1])
+        lens.append(len(c))
+        count += 1
+        # remove tiny components to avoid watering down averages
+        if len(c) < 3:
+            tinycs += list(c)
+    G.remove_nodes_from(tinycs)
+    vals = {
+        'country': np.mean(countries),
+        'prefix': np.mean(prefixes),
+        'resolver': np.mean(resolvers),
+        'subnet': np.mean(subnets),
+        'asn': np.mean(asns),
+        'len': np.median(lens, overwrite_input=True),
+        'min_closeness': mwl[0],
+        'quantity': count}
+    print vals
+    ccl.append(vals)
+
+
+    for min_closeness in mwl[1:]:
+        count = 0
+        remove_far_edges(G, min_closeness)
+        cc = nx.connected_components(G)
+
+        countries = list()
+        prefixes = list()
+        resolvers = list()
+        subnets = list()
+        asns = list()
+        lens = list()
+        tinycs = list()
+
+        for c in cc:
+            if len(c) > 1:
+                country, prefix, resolver, subnet, asn = component_analysis(c)
+                countries.append(country[1])
+                prefixes.append(prefix[1])
+                resolvers.append(resolver[1])
+                subnets.append(subnet[1])
+                asns.append(asn[1])
+            lens.append(len(c))
+            count += 1
+            if len(c) < 3:
+                tinycs += list(c)
+        G.remove_nodes_from(tinycs)
+        vals = {
+            'country': np.mean(countries),
+            'prefix': np.mean(prefixes),
+            'resolver': np.mean(resolvers),
+            'subnet': np.mean(subnets),
+            'asn': np.mean(asns),
+            'len': np.median(lens, overwrite_input=True),
+            'min_closeness': min_closeness,
+            'quantity': count}
+        print vals
+        ccl.append(vals)
     return ccl
-
-
-def csize_vs_mc(svl, mwl, ccache):
-    '''
-    :param svl: list of smartvecs
-    :param mwl: list of min_weight thresholds for which edges are kept
-    :param ccache: closeness_cache
-    :returns: (list of largest component sizes, list of min_weight thresholds)
-    '''
-    X = list()
-    Y = list()
-    print "calling get_cc_varying_mc..."
-    ccl = get_cc_varying_mc(svl, mwl, ccache)
-    for i in xrange(0, len(mwl)):
-        Y.append(max([len(z) for z in ccl[i]]))
-        X.append(mwl[i])
-    return X, Y
-
-
-def ccount_vs_mc(svl, mwl, ccache):
-    '''
-    :param svl: list of smartvecs
-    :param mwl: list of min_weight thresholds for which edges are kept
-    :param ccache: closeness_cache
-    :returns: (list of # of components, list of min_weight thresholds)
-    '''
-    X = list()
-    Y = list()
-    ccl = get_cc_varying_mc(svl, mwl, ccache)
-    for i in xrange(0, len(mwl)):
-        tmp = list(ccl[i])
-        Y.append(len(tmp))
-        print "################", mwl[i], "################"
-        if len(tmp) > 1:
-            for g in xrange(0, len(tmp)):
-                print "************* group "+str(g)+" ****************"
-                countries = [svl[z[1]].get_country() for z in tmp[g]]
-                for c in set(countries):
-                    count = float(len([z for z in countries if z==c]))
-                    print c+": "+str(100.0*count/float(len(tmp[g])))+"%", count
-            print "---------------------------------------------\n"
-        X.append(mwl[i])
-    return X, Y
 
 
 def get_ip_sets(svl):

@@ -131,23 +131,15 @@ def dom_traits(svld, anssets):
 
 
 def self_match(svld):
-    sm = defaultdict(list) # {dom: [self match value]}
-                            # one self match value per client per domain
+    results = list()
     for pid in svld:
         tmpsm = defaultdict(list)
         for i in xrange(0, len(svld[pid])-1):
             for j in xrange(i+1, len(svld[pid])):
                 A = svld[pid][i]
                 B = svld[pid][j]
-                for dom in [z for z in A if z in B]:
-                    a = set(A.vec[dom])
-                    b = set(B.vec[dom])
-                    n = float(len(a.intersection(b)))
-                    d = float(min((len(a),len(b))))
-                    tmpsm[dom].append(1.0-(n/d))
-        for dom in tmpsm:
-            sm[dom].append(np.mean(tmpsm[dom]))
-    return sm
+                results.append(vv.closeness(A, B))
+    return results
 
 
 def measure_expansion(svld):
