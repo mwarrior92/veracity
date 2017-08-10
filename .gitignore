@@ -100,4 +100,7 @@ ENV/
 
 #other 
 *.fragjson
+*.pickle
 scripts/*.png
+state/*.csv
+plots/

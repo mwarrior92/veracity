@@ -132,14 +132,15 @@ def dom_traits(svld, anssets):
 
 def self_match(svld):
     results = list()
-    for pid in svld:
+    pids = svld.keys()
+    for pid in pids:
         tmpsm = defaultdict(list)
         for i in xrange(0, len(svld[pid])-1):
             for j in xrange(i+1, len(svld[pid])):
                 A = svld[pid][i]
                 B = svld[pid][j]
                 results.append(vv.closeness(A, B))
-    return results
+    return pids, results
 
 
 def measure_expansion(svld):

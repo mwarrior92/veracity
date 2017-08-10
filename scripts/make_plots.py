@@ -14,6 +14,7 @@ from scipy.cluster.hierarchy import dendrogram, linkage
 from scipy.cluster.hierarchy import cophenet
 from scipy.cluster.hierarchy import fcluster
 import sys
+import math
 
 ##################################################################
 #                           LOGGING
@@ -127,8 +128,31 @@ def sausage_linkage(t, duration=30000, mask=32, fmt=None,
     plt.savefig(filename+'.png', bbox_inches='tight')
 
 
+def plot_fmeasure(t, duration=30000, mask=32, fmt=None,
+        method="average", country_set=None, oddballs=True,
+        fname='.pdf', maxmissing=0, Zf=False):
+    Z, X = get_zx(t, duration, mask, fmt, method, country_set, oddballs,
+        fname, maxmissing, Zf)
+    '''
+    :param t: int indicating the earliest query the window should include
+    :param duration: int indication the span of time covered by the window,
+        in seconds
+    :param mask: int, prefix mask to use over domain IPs
+    :param fmt: see transform fmt
+    :param country_set: the set of countries the window should include queries from.
+        If None, then all countries will be inluded
+    :param method: the linkage method to be used
+    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
+        False, will only include public IPs
+    :param fname: string to be appended to end of plot file name
+    :param maxmissing: the maximum number of domains that can be missing
+        measurements for a client to still be included in this measurement
+    '''
+    # thresholds = np.arange(0.
+
+
 def get_zx(t, duration=30000, mask=32, fmt=None,
-        method="average", country_set=None, p=0, oddballs=True,
+        method="average", country_set=None, oddballs=True,
         fname='.pdf', maxmissing=0, Zf=False):
     '''
     :param t: int indicating the earliest query the window should include
@@ -339,10 +363,10 @@ def plot_closeness(t, duration=30000, mask=32, fmt=None,
     :param maxmissing: the maximum number of domains that can be missing
         measurements for a client to still be included in this measurement
 
-    for each descriptor (ASN, country, registered prefix, /24 subnet), plot the
-    CDF of the pairwise closeness of clients, such that the clients in a pair
-    come from different groups in the descriptor (e.g., different countries
-        for the country descriptor)
+    plots:
+        1) CDF for pairwise closeness of each pair
+        2) CDF for the average pairwise closeness experienced by each probe
+        across all other probes
     '''
     print "getting svl..."
     svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
@@ -352,29 +376,41 @@ def plot_closeness(t, duration=30000, mask=32, fmt=None,
     ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
 
     print "calculating closeness for resolvers..."
+    means = defaultdict(list)
     vals = list()
     for i in xrange(0, len(svl)-1):
         for j in xrange(i + 1, len(svl)):
             vals.append(ccache[svl[i]][svl[j]])
+            means[svl[i].get_id()].append(vals[-1])
+            means[svl[j].get_id()].append(vals[-1])
 
     print "plotting..."
     fig, ax = plt.subplots(1, 1)
+
     ecdf = ECDF(vals)
     x = list(ecdf.x)
     y = list(ecdf.y)
-    ax.plot(x, y)
+    ax.plot(x, y, label="pairwise")
+
+    ecdf = ECDF([np.mean(means[z]) for z in means])
+    x = list(ecdf.x)
+    y = list(ecdf.y)
+    ax.plot(x, y, label="average (per client)")
+
     ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=xlim)
     plt.xlabel("pairwise probe closeness")
     plt.ylabel("CDF of pairs")
+    lgd = ps.legend_setup(ax, 4, "top center", True)
     filename = plotsdir+"closeness_diff_desc"+fname
-    fig.savefig(filename+'.png', bbox_inches='tight')
-    fig.savefig(filename+'.pdf', bbox_inches='tight')
+    fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
     plt.close(fig)
 
     print "saving data..."
-    for i in xrange(0, len(vals)):
-        outstr = df.overwrite(statedir+labels[i]+'_diff.csv',
-                df.list2col(vals[i]))
+    df.overwrite(statedir+'overall_closeness'+fname+'.csv',
+        df.list2col(vals))
+    df.overwrite(statedir+'overall_avg_closeness'+fname+'.csv',
+        df.list2col([(z, np.mean(means[z])) for z in means]))
     ccache.dump()
 
 
@@ -727,37 +763,67 @@ def inv_hist(t, duration=30000, mask=32, fmt=None, country_set=None,
 
 
 def plot_self_match(t, duration=6*30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", loops=2,
-        gap=1, thresh=10, maxmissing=0):
+        country_set=None, oddballs=True, fname="", loops=7,
+        gap=0, thresh=10, maxmissing=0):
     '''
     lines:  1) domain independent cdf of ALL matches
             2-n) cdf of matches for domain with answer space > thresh
             n-m) cdf of matches for ALL domains with answer space < thresh
     '''
-    svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
-            fmt, country_set, oddballs, maxmissing)
-    keys = svld.keys()
+    valsd = defaultdict(list) # {pid: [vals]}
+    for i in xrange(0, loops):
+        svld, allsvl, allfmt, anssets = mv.arrange_self_data(t+2*duration*i,
+                duration, gap, 2, mask,
+                fmt, country_set, oddballs, maxmissing)
+        keys = svld.keys()
 
-    vals = mv.self_match(svld)
+        pids, vals = mv.self_match(svld)
+        for pid, val in zip(pids, vals):
+            valsd[pid].append(val)
+
+    results = list()
+    for pid in valsd:
+        results.append(pid, np.mean(valsd[pid]))
+
+    results = sorted(results, key=lambda z: z[1], reverse=True)
 
     fig, ax = plt.subplots(1, 1)
-    ecdf = ECDF(vals)
+    ecdf = ECDF([z[1] for z in results])
     x = list(ecdf.x)
     y = list(ecdf.y)
-    ax.plot(x, y)
+    ax.plot(x, y, color='k')
+    ax.axvline(np.median(x), color='r', linestyle='--')
     ps.set_dim(fig, ax, xdim=13, ydim=7.5)
-    plt.xlabel("self closeness")
+    plt.xlabel("closeness to self")
     plt.ylabel("CDF of clients")
-    lgd = ps.legend_setup(ax, 4, "top center", True)
-    filename = plotsdir+"self_jaccard"+fname
-    fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
-    fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    filename = plotsdir+"self_closeness"+fname
+    fig.savefig(filename+'.png', bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_inches='tight')
     plt.close(fig)
 
+
+    countries = [(z[1], svld[z[0]][0].get_country()) for z in results]
+    subnets = [(z[1], svld[z[0]][0].get_subnet()) for z in results]
+    asns = [(z[1], svld[z[0]][0].get_asn()) for z in results]
+    prefixes = [(z[1], svld[z[0]][0].get_prefix()) for z in results]
+    resolvers = [(z[1], svld[z[0]][0].get_ldns()) for z in results]
+    labels = [
+        (countries, 'countries'),
+        (asns, 'asns'),
+        (resolvers, 'resolvers'),
+        (prefixes, 'prefixes'),
+        (subnets, 'subnets')]
+
+    for valset, label in labels:
+        data = sorted([(y, np.mean([z[0] for z in valset if z[1] == y]),
+                len([z[0] for z in valset if z[1] == y])) \
+                for y in set([v[1] for v in valset])], key=lambda x: x[1])
+        df.overwrite(statedir+'self_closeness_'+label+fname+'.csv',
+                df.list2col(data))
+
     print "saving data..."
-    for i in xrange(0, len(vals)):
-        outstr = df.overwrite(statedir+labels[i]+'_self_jaccard.csv',
-                df.list2col(vals[i]))
+    outstr = df.overwrite(statedir+'self_closeness'+fname+'.csv',
+            df.list2col(results))
 
 
 def plot_examine_self_diff(t, duration=30000, mask=32, fmt=None,
