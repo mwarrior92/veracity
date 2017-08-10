@@ -344,9 +344,9 @@ def plot_optimizing_window(t, duration=30000, mask=32, fmt=None,
             df.list2col(allvals))
 
 
-def plot_closeness(t, duration=30000, mask=32, fmt=None,
+def plot_closeness(t, duration=2*24*60*60, mask=32, fmt=None,
         country_set=None, oddballs=True, fname="", xlim=[.6, 1.0], maxmissing=0,
-        rmask=16):
+        loops=15):
     '''
     :param t: int indicating the earliest query the window should include
     :param duration: int indication the span of time covered by the window,
@@ -368,21 +368,22 @@ def plot_closeness(t, duration=30000, mask=32, fmt=None,
         2) CDF for the average pairwise closeness experienced by each probe
         across all other probes
     '''
-    print "getting svl..."
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
-    logger.warning("svl len: "+str(len(svl)))
-    print len(svl)
-
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
-
-    print "calculating closeness for resolvers..."
     means = defaultdict(list)
     vals = list()
-    for i in xrange(0, len(svl)-1):
-        for j in xrange(i + 1, len(svl)):
-            vals.append(ccache[svl[i]][svl[j]])
-            means[svl[i].get_id()].append(vals[-1])
-            means[svl[j].get_id()].append(vals[-1])
+    for l in xrange(0, loops):
+        print "getting svl..."
+        svl, fmt, _ = vv.get_svl(t+duration*l, duration, mask, fmt, country_set, oddballs, maxmissing)
+        logger.warning("svl len: "+str(len(svl)))
+        print len(svl)
+
+        ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
+
+        print "calculating closeness for resolvers..."
+        for i in xrange(0, len(svl)-1):
+            for j in xrange(i + 1, len(svl)):
+                vals.append(ccache[svl[i]][svl[j]])
+                means[svl[i].get_id()].append(vals[-1])
+                means[svl[j].get_id()].append(vals[-1])
 
     print "plotting..."
     fig, ax = plt.subplots(1, 1)
@@ -771,19 +772,21 @@ def plot_self_match(t, duration=6*30000, mask=32, fmt=None,
             n-m) cdf of matches for ALL domains with answer space < thresh
     '''
     valsd = defaultdict(list) # {pid: [vals]}
+    bigsvld = dict()
     for i in xrange(0, loops):
+        print (t+2*duration*i, duration)
         svld, allsvl, allfmt, anssets = mv.arrange_self_data(t+2*duration*i,
                 duration, gap, 2, mask,
                 fmt, country_set, oddballs, maxmissing)
-        keys = svld.keys()
 
         pids, vals = mv.self_match(svld)
         for pid, val in zip(pids, vals):
             valsd[pid].append(val)
+            bigsvld[pid] = svld[pid]
 
     results = list()
     for pid in valsd:
-        results.append(pid, np.mean(valsd[pid]))
+        results.append((pid, np.mean(valsd[pid])))
 
     results = sorted(results, key=lambda z: z[1], reverse=True)
 
@@ -801,24 +804,19 @@ def plot_self_match(t, duration=6*30000, mask=32, fmt=None,
     fig.savefig(filename+'.pdf', bbox_inches='tight')
     plt.close(fig)
 
+    labels = defaultdict(list)
+    for pid, val in results:
+        labels['countries'].append((val, bigsvld[pid][0].get_country()))
+        labels['subnets'].append((val, bigsvld[pid][0].get_subnet()))
+        labels['prefixes'].append((val, bigsvld[pid][0].get_prefix()))
+        labels['asns'].append((val, bigsvld[pid][0].get_asn()))
+        labels['resolvers'].append((val, bigsvld[pid][0].get_ldns()))
 
-    countries = [(z[1], svld[z[0]][0].get_country()) for z in results]
-    subnets = [(z[1], svld[z[0]][0].get_subnet()) for z in results]
-    asns = [(z[1], svld[z[0]][0].get_asn()) for z in results]
-    prefixes = [(z[1], svld[z[0]][0].get_prefix()) for z in results]
-    resolvers = [(z[1], svld[z[0]][0].get_ldns()) for z in results]
-    labels = [
-        (countries, 'countries'),
-        (asns, 'asns'),
-        (resolvers, 'resolvers'),
-        (prefixes, 'prefixes'),
-        (subnets, 'subnets')]
-
-    for valset, label in labels:
-        data = sorted([(y, np.mean([z[0] for z in valset if z[1] == y]),
-                len([z[0] for z in valset if z[1] == y])) \
-                for y in set([v[1] for v in valset])], key=lambda x: x[1])
-        df.overwrite(statedir+'self_closeness_'+label+fname+'.csv',
+    for k in labels:
+        data = sorted([(y, np.mean([z[0] for z in labels[k] if z[1] == y]),
+                len([z[0] for z in labels[k] if z[1] == y])) \
+                for y in set([v[1] for v in labels[k]])], key=lambda x: x[1])
+        df.overwrite(statedir+'self_closeness_'+k+fname+'.csv',
                 df.list2col(data))
 
     print "saving data..."

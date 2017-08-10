@@ -55,7 +55,7 @@ def arrange_self_data(t, duration=30000, gap=1, loops=2, mask=32,
         for dom in anssets2:
             anssets[dom] |= set(anssets2[dom])
         for i in xrange(0, len(svl)):
-            svld[svl[i].id].append(svl[i])
+            svld[svl[i].get_id()].append(svl[i])
             allsvl.append(svl[i])
 
     return svld, allsvl, list(allfmt), anssets

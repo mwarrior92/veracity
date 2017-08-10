@@ -550,7 +550,8 @@ def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
     # remove any domains that only have 1 IP (since all nodes will see the
     # same thing)
     for dom in fmt:
-        if len(anssets[dom]) < 2 or ('google' in dom and dom != 'google.com.'):
+        if len(anssets[dom]) < 2 or ('google' in dom and dom != 'google.com.')\
+          or len([sv for sv in svl if dom not in sv]) > 0.5*len(svl):
             del anssets[dom]
     fmt = sorted(list(set(anssets.keys()).intersection(set(fmt))))
     svl = reduce_svl(svl, fmt, maxmissing)
