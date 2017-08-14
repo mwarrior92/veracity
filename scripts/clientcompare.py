@@ -49,32 +49,21 @@ def distance(c, d): # c: closeness, d: physical distance (km)
     return math.sqrt(c**2 + math.log(max([d,1.0]), 40075)**2)
 
 
-def closest_diff_desc(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", xlim=[.6, 1.0], maxmissing=0):
+def closest_diff_desc(start_time, fname="", xlim=[.6, 1.0], **kwas):
     '''
     :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
-    :param method: the linkage method to be used
-    :param p: dendrogram will show last p merged clusters
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
     :param fname: string to be appended to end of plot file name
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
     :returns: [country, ASN, subnet, prefix] pair dictionaries of closeness lists
 
     gets pairwise closeness of probes with different descriptors to find odd
     behavior (probes in difference descriptors with high closeness scores)
 
     NOTE: writes data to files for conveniece
+    NOTE: accepts vv.get_svl keyword params
     '''
     print("getting svl...")
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    kwas['start_time'] = start_time
+    svl, __, __, ccache = vv.get_svl(**kwas)
     logger.warning("svl len: "+str(len(svl)))
 
     print("getting descriptor lists...")
@@ -82,8 +71,6 @@ def closest_diff_desc(t, duration=30000, mask=32, fmt=None,
     asvl = vv.asn_svl(svl)
     #ssvl = vv.subnet_svl(svl)
     psvl = vv.prefix_svl(svl)
-
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
 
     idc = defaultdict(list)
     # {idA_idB:closeness}
@@ -187,32 +174,20 @@ def closest_diff_desc(t, duration=30000, mask=32, fmt=None,
     return svd
 
 
-def farthest_same_desc(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", xlim=[.6, 1.0], maxmissing=0):
+def farthest_same_desc(start_time, fname="", xlim=[.6, 1.0], **kwas):
     '''
-    :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
-    :param method: the linkage method to be used
-    :param p: dendrogram will show last p merged clusters
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
     :param fname: string to be appended to end of plot file name
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
     :returns: [country, ASN, subnet, prefix] pair dictionaries of closeness lists
 
     gets pairwise closeness of probes with different descriptors to find odd
     behavior (probes in difference descriptors with high closeness scores)
 
     NOTE: writes data to files for conveniece
+    NOTE: accepts vv.get_svl keyword params
     '''
     print("getting svl...")
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    kwas['start_time'] = start_time
+    svl, __, __, ccache = vv.get_svl(**kwas)
     logger.warning("svl len: "+str(len(svl)))
 
     print("getting descriptor lists...")
@@ -220,8 +195,6 @@ def farthest_same_desc(t, duration=30000, mask=32, fmt=None,
     asvl = vv.asn_svl(svl)
     ssvl = vv.subnet_svl(svl)
     psvl = vv.prefix_svl(svl)
-
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
 
     # {idA_countryB: [closeness]}
     idc = defaultdict(list)

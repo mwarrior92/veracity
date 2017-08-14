@@ -524,8 +524,9 @@ def get_weighting(anssets):
 
 
 @vngr.cache_me_outside
-def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
-        oddballs=True, maxmissing=0):
+def get_svl(start_time, duration=30000, mask=32, fmt=None, country_set=None,
+        oddballs=True, maxmissing=0, return_ccache=True,
+        ccachef=df.rightdir(statedir+"pickles/")+"ccache.pickle"):
     '''
     :param t: int indicating the earliest query the window should include
     :param duration: int indication the span of time covered by the window,
@@ -539,7 +540,7 @@ def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
     :return: list of smartvecs
     '''
     logger.info("->window...")
-    window = get_window(t, duration, country_set=country_set, domain_set=fmt)
+    window = get_window(start_time, duration, country_set=country_set, domain_set=fmt)
 
     logger.info("->svl...")
     svl, doms, anssets = dicts_to_svl(window, mask, oddballs)
@@ -562,7 +563,12 @@ def get_svl(t, duration=30000, mask=32, fmt=None, country_set=None,
         for val in tmp:
             if type(val) is int:
                 logger.debug(ipp.int2ip(val))
-    return svl, fmt, dict(anssets)
+
+    if return_ccache:
+        ccache = vv.init_ccache(None, ccachef, start_time, duration, mask, fmt, oddballs, maxmissing)
+        return svl, fmt, dict(anssets), ccache
+    else:
+        return svl, fmt, dict(anssets)
 
 
 def reduce_svl(svl, fmt, maxmissing=0):

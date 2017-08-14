@@ -46,51 +46,21 @@ ccachef = df.rightdir(statedir+"pickles/")+"ccache.pickle"
 ##################################################################
 
 
-def sausage_linkage(t, duration=30000, mask=32, fmt=None,
-        method="single", country_set=None, oddballs=True,
-        fname='.pdf', maxmissing=0, Zf=False):
+def sausage_linkage(start_time, method="single", fname="", Zf=False, xlim=None, **kwas):
     '''
-    :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
+    :param start_time: int indicating the earliest query the window should include
     :param method: the linkage method to be used
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
     :param fname: string to be appended to end of plot file name
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
+    :param Zf: boolean -> if True, will load from file (see code for file name).
+    :param xlim: x axis limits for plot. Accepts formats: None, [a, b],
+    :param **kwas: keyword arguments for vv.get_svl()
 
     plots the change in distribution of components with respect to maximum
     distance threshold
 
     '''
 
-    X, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
-    logger.warning("svl len: "+str(len(X)))
-
-    if Zf is False:
-        dm = np.zeros((len(X) * (len(X) - 1)) // 2, dtype=np.double)
-        k = 0
-        for i in xrange(0, len(X)-1):
-            for j in xrange(i + 1, len(X)):
-                dm[k] = 1.0 - ccache[X[i]][X[j]]
-                k = k + 1
-        ccache.dump()
-        Z = linkage(dm, method)
-        df.pickleout(statedir+'pickles/'+'Z_'+method+fname+'.pickle', (Z, dm))
-        logger.warning('dumped Z \
-                to '+statedir+'pickles/'+'Z_'+method+fname+'.pickle')
-    else:
-        Z, dm = df.picklein(statedir+'pickles/'+'Z_'+method+fname+'.pickle')
-        logger.warning('loaded Z from '+statedir+'pickles/'+'Z_'+method+fname+'.pickle')
-
-    c, coph_dists = cophenet(Z, dm)
-    print " Cophenetic Correlation Coefficient: "+str(c)
+    Z, X = get_zx(start_time, method, fname, Zf, **kwas)
     y1 = defaultdict(list)
     y2 = list()
     x = np.arange(.0, 1.0, .01)
@@ -122,66 +92,39 @@ def sausage_linkage(t, duration=30000, mask=32, fmt=None,
     ax2.plot(x, y2, 'k', label='# components')
     ax2.set_ylabel('avg component size')
 
-    ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=[None, .5])
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=xlim)
     lgd = ps.legend_setup(ax, 5, "top center", True)
     filename = plotsdir+"linkage_"+method+fname
     plt.savefig(filename+'.pdf', bbox_inches='tight')
     plt.savefig(filename+'.png', bbox_inches='tight')
 
 
-def plot_fmeasure(t, duration=30000, mask=32, fmt=None,
-        method="average", country_set=None, oddballs=True,
-        fname='.pdf', maxmissing=0, Zf=False):
-    Z, X = get_zx(t, duration, mask, fmt, method, country_set, oddballs,
-        fname, maxmissing, Zf)
+def plot_fmeasure(start_time, method="average", fname="", Zf=False, **kwas):
     '''
-    :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
+    :param start_time: int indicating the earliest query the window should include
     :param method: the linkage method to be used
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
     :param fname: string to be appended to end of plot file name
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
+    :param **kwas: keyword arguments for vv.get_svl()
     '''
-    # thresholds = np.arange(0.
+    Z, X = get_zx(start_time, method, fname, Zf, **kwas)    # thresholds = np.arange(0.
 
 
-def get_zx(t, duration=30000, mask=32, fmt=None,
-        method="average", country_set=None, oddballs=True,
-        fname='.pdf', maxmissing=0, Zf=False):
+def get_zx(start_time, method="single", fname="", Zf=False, **kwas):
     '''
-    :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
+    :param start_time: int indicating the earliest query the window should include
     :param method: the linkage method to be used
-    :param p: dendrogram will show last p merged clusters
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
     :param fname: string to be appended to end of plot file name
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
     :param Zf: boolean -> if True, will load from file (see code for file name).
         NOTE: it will save the most recent version you calculated. Make sure the
         right version of the file exists before setting Zf to true
+    :param **kwas: keyword arguments for vv.get_svl()
     :return: linkage, dendrogram's output, svl
 
     computes and plots dendrogram with respect to distance between clients
     '''
-
-    X, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
-
     if Zf is False:
-        ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
+        kwas['start_time'] = start_time
+        X, fmt, _, ccache = vv.get_svl(**kwas)
         logger.warning("svl len: "+str(len(X)))
 
         dm = np.zeros((len(X) * (len(X) - 1)) // 2, dtype=np.double)
@@ -192,65 +135,33 @@ def get_zx(t, duration=30000, mask=32, fmt=None,
                 k = k + 1
         ccache.dump()
         Z = linkage(dm, method)
-        df.pickleout(statedir+'pickles/'+'Z_'+method+fname+'.pickle', (Z, dm))
-        logger.warning('dumped Z \
-                to '+statedir+'pickles/'+'Z_'+method+fname+'.pickle')
+        df.pickleout(statedir+'pickles/'+'Z_'+method+fname+'.pickle', (Z, dm, X))
+        logger.warning('dumped Z to ' \
+                +statedir+'pickles/'+'Z_'+method+fname+'.pickle')
     else:
-        Z, dm = df.picklein(statedir+'pickles/'+'Z_'+method+fname+'.pickle')
+        Z, dm, X = df.picklein(statedir+'pickles/'+'Z_'+method+fname+'.pickle')
         logger.warning('loaded Z from '+statedir+'pickles/'+'Z_'+method+fname+'.pickle')
     c, coph_dists = cophenet(Z, dm)
 
     return Z, X
 
 
-def get_dendrogram(t, duration=30000, mask=32, fmt=None,
-        method="average", country_set=None, p=0, oddballs=True,
-        fname='.pdf', maxmissing=0, Zf=False):
+def get_dendrogram(start_time, method="average", p=0, fname="", Zf=False, **kwas):
     '''
-    :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
+    :param start_time: int indicating the earliest query the window should include
     :param method: the linkage method to be used
     :param p: dendrogram will show last p merged clusters
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
     :param fname: string to be appended to end of plot file name
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
     :param Zf: boolean -> if True, will load from file (see code for file name).
         NOTE: it will save the most recent version you calculated. Make sure the
         right version of the file exists before setting Zf to true
+    :param **kwas: keyword arguments for vv.get_svl()
     :return: linkage, dendrogram's output, svl
 
     computes and plots dendrogram with respect to distance between clients
     '''
 
-    X, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
-
-    if Zf is False:
-        ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
-        logger.warning("svl len: "+str(len(X)))
-
-        dm = np.zeros((len(X) * (len(X) - 1)) // 2, dtype=np.double)
-        k = 0
-        for i in xrange(0, len(X)-1):
-            for j in xrange(i + 1, len(X)):
-                dm[k] = 1.0 - ccache[X[i]][X[j]]
-                k = k + 1
-        ccache.dump()
-        Z = linkage(dm, method)
-        df.pickleout(statedir+'pickles/'+'Z_'+method+fname+'.pickle', (Z, dm))
-        logger.warning('dumped Z \
-                to '+statedir+'pickles/'+'Z_'+method+fname+'.pickle')
-    else:
-        Z, dm = df.picklein(statedir+'pickles/'+'Z_'+method+fname+'.pickle')
-        logger.warning('loaded Z from '+statedir+'pickles/'+'Z_'+method+fname+'.pickle')
-    c, coph_dists = cophenet(Z, dm)
-    print " Cophenetic Correlation Coefficient: "+str(c)
+    Z, X = get_zx(start_time, method, fname, Zf, **kwas)
     plt.figure(figsize=(15, 10))
     plt.xlabel('sample index')
     plt.ylabel('distance')
@@ -270,29 +181,15 @@ def get_dendrogram(t, duration=30000, mask=32, fmt=None,
     return Z, d, X
 
 
-def plot_optimizing_window(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", xlim=None,
-        maxdur=90000*15, incr=30000, maxmissing=0):
+def plot_optimizing_window(start_time, duration, fname="", xlim=None,
+        maxdur=90000*15, incr=30000, **kwas):
     '''
-    :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
+    :param start_time: int indicating the earliest query the window should include
     :param fname: string to be appended to end of plot file name
     :param xlim: x axis limits for plot. Accepts formats: None, [a, b],
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
-        [a, None], [None, b], where None values result in the default/automatic
-        limits
     :param maxdur: the outer bound of the duration range to be covered
     :param incr: the number of seconds to increment the duration by in each loop
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
+    :param **kwas: keyword arguments for vv.get_svl()
 
     makes line plot varying the duration (x axis) vs the closeness to one's self
     from a different point in time (e.g., for a 10 second duration, self A would
@@ -303,14 +200,18 @@ def plot_optimizing_window(t, duration=30000, mask=32, fmt=None,
     allbars = list()
     allx = list()
     dur = duration
+    kwas['return_ccache'] = False
     while dur < maxdur:
         print "getting svls..."
-        svl, _, _ = vv.get_svl(t, dur, mask, fmt, country_set, oddballs, maxmissing)
+        kwas['duration'] = dur
+        kwas['start_time'] = start_time
+        svl, __, __ = vv.get_svl(**kwas)
         logger.warning("svl len: "+str(len(svl)))
         svl1 = dict()
         for sv in svl:
             svl1[sv.id] = sv
-        svl, _, _ = vv.get_svl(t+dur, dur, mask, fmt, country_set, oddballs, maxmissing)
+        kwas['start_time'] = start_time+dur
+        svl, __, __ = vv.get_svl(**kwas)
         logger.warning("svl len: "+str(len(svl)))
         svl2 = dict()
         for sv in svl:
@@ -345,24 +246,13 @@ def plot_optimizing_window(t, duration=30000, mask=32, fmt=None,
             df.list2col(allvals))
 
 
-def plot_closeness(t, duration=2*24*60*60, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", xlim=[.6, 1.0], maxmissing=0,
-        loops=15):
+def plot_closeness(start_time, duration, fname="", xlim=[.6, 1.0], loops=15, **kwas):
     '''
-    :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
-    :param method: the linkage method to be used
-    :param p: dendrogram will show last p merged clusters
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
+    :param start_time: int indicating the earliest query the window should include
     :param fname: string to be appended to end of plot file name
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
+    :param xlim: x axis limits for plot. Accepts formats: None, [a, b],
+    :param loops: number of time blocks
+    :param **kwas: keyword arguments for vv.get_svl()
 
     plots:
         1) CDF for pairwise closeness of each pair
@@ -371,13 +261,13 @@ def plot_closeness(t, duration=2*24*60*60, mask=32, fmt=None,
     '''
     means = defaultdict(list)
     vals = list()
+    kwas['duration'] = duration
     for l in xrange(0, loops):
         print "getting svl..."
-        svl, fmt, _ = vv.get_svl(t+duration*l, duration, mask, fmt, country_set, oddballs, maxmissing)
+        kwas['start_time'] = start_time+duration*l
+        svl, fmt, __, ccache = vv.get_svl(**kwas)
         logger.warning("svl len: "+str(len(svl)))
         print len(svl)
-
-        ccache = vv.init_ccache(None, ccachef, t+duration*l, duration, mask, fmt, oddballs, maxmissing)
 
         print "calculating closeness for resolvers..."
         for i in xrange(0, len(svl)-1):
@@ -418,24 +308,13 @@ def plot_closeness(t, duration=2*24*60*60, mask=32, fmt=None,
         df.list2col([(z, np.mean(means[z])) for z in means]))
 
 
-def plot_closeness_diff_desc(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", xlim=[.6, 1.0], maxmissing=0,
-        rmask=16):
+def plot_closeness_diff_desc(start_time, fname="", xlim=[.6, 1.0], rmask=16, **kwas):
     '''
-    :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
-    :param method: the linkage method to be used
-    :param p: dendrogram will show last p merged clusters
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
+    :param start_time: int indicating the earliest query the window should include
     :param fname: string to be appended to end of plot file name
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
+    :param xlim: x axis limits for plot. Accepts formats: None, [a, b],
+    :param rmask: mask for resolver IPs
+    :param **kwas: keyword arguments for vv.get_svl()
 
     for each descriptor (ASN, country, registered prefix, /24 subnet), plot the
     CDF of the pairwise closeness of clients, such that the clients in a pair
@@ -443,7 +322,8 @@ def plot_closeness_diff_desc(t, duration=30000, mask=32, fmt=None,
         for the country descriptor)
     '''
     print "getting svl..."
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    kwas['start_time'] = start_time
+    svl, fmt, __, ccache = vv.get_svl(**kwas)
     logger.warning("svl len: "+str(len(svl)))
     print len(svl)
 
@@ -467,8 +347,6 @@ def plot_closeness_diff_desc(t, duration=30000, mask=32, fmt=None,
         tmp = ipp.ip2int(ip) & fmtmask
         if tmp in lsvl:
             del lsvl[tmp]
-
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
 
     print "calculating closeness for resolvers..."
     lvals = list()
@@ -550,24 +428,13 @@ def plot_closeness_diff_desc(t, duration=30000, mask=32, fmt=None,
     ccache.dump()
 
 
-def plot_closeness_same_desc(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", xlim=[.6, 1.0], maxmissing=0,
-        rmask=16):
+def plot_closeness_same_desc(start_time, fname="", xlim=[.6, 1.0], rmask=16, **kwas):
     '''
-    :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
-    :param method: the linkage method to be used
-    :param p: dendrogram will show last p merged clusters
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
+    :param start_time: int indicating the earliest query the window should include
     :param fname: string to be appended to end of plot file name
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
+    :param xlim: x axis limits for plot. Accepts formats: None, [a, b],
+    :param rmask: mask for resolver IPs
+    :param **kwas: keyword arguments for vv.get_svl()
 
     for each descriptor (ASN, country, registered prefix, /24 subnet), plot the
     CDF of the pairwise closeness of clients, such that the clients in a pair
@@ -575,7 +442,8 @@ def plot_closeness_same_desc(t, duration=30000, mask=32, fmt=None,
         country descriptor)
     '''
     print "getting svl..."
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    kwas['start_time'] = start_time
+    svl, fmt, __, ccache = vv.get_svl(**kwas)
     logger.warning("svl len: "+str(len(svl)))
 
     print "getting descriptor lists..."
@@ -598,8 +466,6 @@ def plot_closeness_same_desc(t, duration=30000, mask=32, fmt=None,
         tmp = ipp.ip2int(ip) & fmtmask
         if tmp in lsvl:
             del lsvl[tmp]
-
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
 
     print "calculating closeness for resolvers..."
     lvals = list()
@@ -681,32 +547,21 @@ def plot_closeness_same_desc(t, duration=30000, mask=32, fmt=None,
     ccache.dump()
 
 
-def plot_varying_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
-        oddballs=True, fname="", maxmissing=0, tmin=.75, tmax=1.01,
-        tinc=.025):
+def plot_varying_mc(start_time, fname="", tmin=.75, tmax=1.01, tinc=.025, **kwas):
     '''
-    :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
+    :param start_time: int indicating the earliest query the window should include
     :param fname: string to be appended to end of plot file name
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
     :param tmin: start of threshold range (e.g., a of np.arange(a, b, c))
     :param tmax: end of threshold range (e.g., b of np.arange(a, b, c))
     :param tinc: the step size of the threshold range (e.g., c of np.arange(a,
         b, c)
+    :param **kwas: keyword arguments for vv.get_svl()
 
     '''
 
     logger.info("getting svl")
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
+    kwas['start_time'] = start_time
+    svl, fmt, __, ccache = vv.get_svl(**kwas)
     mwl = np.arange(tmin, tmax, tinc)
     ccl = vg.get_cc_varying_mc(svl, mwl, ccache)
 
@@ -731,11 +586,11 @@ def plot_varying_mc(t, duration=30000, mask=32, fmt=None, country_set=None,
     ccache.dump()
 
 
-def inv_hist(t, duration=30000, mask=32, fmt=None, country_set=None,
-        oddballs=True, fname="", thresh=.35, maxmissing=0):
-
+def inv_hist(start_time, fname="", thresh=.35, **kwas):
     logger.info("getting svl...")
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    kwas['start_time'] = start_time
+    kwas['return_ccache'] = False
+    svl, fmt, __ = vv.get_svl(**kwas)
     logger.info("getting ipsl...")
     ipsl, dompairs = get_ip_sets(svl)
     logger.info("getting pairing counts...")
@@ -766,9 +621,8 @@ def inv_hist(t, duration=30000, mask=32, fmt=None, country_set=None,
     plt.savefig(plotsdir+fname+'inv_hist.pdf', bbox_inches='tight')
 
 
-def plot_self_match(t, duration=6*30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", loops=7,
-        gap=0, thresh=10, maxmissing=0):
+def plot_self_match(start_time, duration, fname="", loops=7, gap=0, thresh=10,
+        **kwas):
     '''
     lines:  1) domain independent cdf of ALL matches
             2-n) cdf of matches for domain with answer space > thresh
@@ -776,11 +630,12 @@ def plot_self_match(t, duration=6*30000, mask=32, fmt=None,
     '''
     valsd = defaultdict(list) # {pid: [vals]}
     bigsvld = dict()
+    kwas['duration'] = duration
+    kwas['return_ccache'] = False
     for i in xrange(0, loops):
         print (t+2*duration*i, duration)
-        svld, allsvl, allfmt, anssets = mv.arrange_self_data(t+2*duration*i,
-                duration, gap, 2, mask,
-                fmt, country_set, oddballs, maxmissing)
+        kwas['start_time'] = start_time+2*(gap+duration)*i
+        svld, allsvl, allfmt, anssets = mv.arrange_self_data(start_time, gap, 2, **kwas)
 
         pids, vals = mv.self_match(svld)
         for pid, val in zip(pids, vals):
@@ -827,17 +682,16 @@ def plot_self_match(t, duration=6*30000, mask=32, fmt=None,
             df.list2col(results))
 
 
-def plot_examine_self_diff(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", loops=2,
-        gap=0, thresh=10, maxmissing=0):
+def plot_examine_self_diff(start_time, fname="", loops=2, gap=0, thresh=10,
+        **kwas):
     '''
     lines:  1) domain independent cdf of ALL matches
             2-n) cdf of matches for domain with answer space > thresh
             n-m) cdf of matches for ALL domains with answer space < thresh
     '''
-    svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
-            fmt, country_set, oddballs, maxmissing)
-    keys = svld.keys()
+    kwas['start_time'] = start_time
+    kwas['return_ccache'] = False
+    svld, allsvl, allfmt, anssets = mv.arrange_self_data(start_time, gap, loops, **kwas)
 
     sm = mv.examine_self_diff(svld)
     vals = [[], []]
@@ -871,17 +725,16 @@ def plot_examine_self_diff(t, duration=30000, mask=32, fmt=None,
                 df.list2col(vals[i]))
 
 
-def plot_examine_diff_diff(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", loops=2,
-        gap=0, thresh=10, maxmissing=0):
+def plot_examine_diff_diff(start_time, fname="", loops=2, gap=0,
+        thresh=10, **kwas):
     '''
     lines:  1) domain independent cdf of ALL matches
             2-n) cdf of matches for domain with answer space > thresh
             n-m) cdf of matches for ALL domains with answer space < thresh
     '''
-    svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
-            fmt, country_set, oddballs, maxmissing)
-    keys = svld.keys()
+    kwas['start_time'] = start_time
+    kwas['return_ccache'] = False
+    svld, allsvl, allfmt, anssets = mv.arrange_self_data(start_time, gap, loops, **kwas)
 
     sm = mv.examine_diff_diff(svld)
     vals = [[], []]
@@ -917,11 +770,12 @@ def plot_examine_diff_diff(t, duration=30000, mask=32, fmt=None,
                 df.list2col(vals[i]))
 
 
-def plot_measure_expansion(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", loops=10,
-        gap=0, thresh=10, maxmissing=0):
-    svld, allsvl, allfmt, anssets = mv.arrange_self_data(t, duration, gap, loops, mask,
-            fmt, country_set, oddballs, maxmissing)
+def plot_measure_expansion(start_time, fname="", loops=10, gap=0, thresh=10,
+        **kwas):
+
+    kwas['start_time'] = start_time
+    kwas['return_ccache'] = False
+    svld, allsvl, allfmt, anssets = mv.arrange_self_data(start_time, gap, loops, **kwas)
     keys = svld.keys()
 
     counts = mv.measure_expansion(svld)
@@ -966,24 +820,13 @@ def plot_measure_expansion(t, duration=30000, mask=32, fmt=None,
                 df.list2col(vals[i]))
 
 
-def plot_resolver_comparison(t, duration=30000, mask=32, fmt=None,
-        country_set=None, oddballs=True, fname="", xlim=[.6, 1.0],
-        maxmissing=0, rmask=16):
+def plot_resolver_comparison(start_time, fname="", xlim=[.6, 1.0], rmask=16, **kwas):
     '''
-    :param t: int indicating the earliest query the window should include
-    :param duration: int indication the span of time covered by the window,
-        in seconds
-    :param mask: int, prefix mask to use over domain IPs
-    :param fmt: see transform fmt
-    :param country_set: the set of countries the window should include queries from.
-        If None, then all countries will be inluded
-    :param method: the linkage method to be used
-    :param p: dendrogram will show last p merged clusters
-    :param oddballs: if True, will include non-public IPs (10.x.x.x, etc); if
-        False, will only include public IPs
+    :param start_time: int indicating the earliest query the window should include
     :param fname: string to be appended to end of plot file name
-    :param maxmissing: the maximum number of domains that can be missing
-        measurements for a client to still be included in this measurement
+    :param xlim: x axis limits for plot. Accepts formats: None, [a, b],
+    :param rmask: mask for resolver IPs
+    :param **kwas: keyword arguments for vv.get_svl()
     :returns: [country, ASN, subnet, prefix] pair dictionaries of closeness lists
 
     gets pairwise closeness of probes with different descriptors to find odd
@@ -994,9 +837,9 @@ def plot_resolver_comparison(t, duration=30000, mask=32, fmt=None,
 
 
     print("getting svl...")
-    svl, fmt, _ = vv.get_svl(t, duration, mask, fmt, country_set, oddballs, maxmissing)
+    kwas['start_time'] = start_time
+    svl, fmt, __, ccache = vv.get_svl(**kwas)
     logger.warning("svl len: "+str(len(svl)))
-    ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
 
     nearbies = cc.nearby_probes_diff_ldns(svl, rmask)
 
