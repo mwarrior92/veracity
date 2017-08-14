@@ -15,6 +15,7 @@ from scipy.cluster.hierarchy import cophenet
 from scipy.cluster.hierarchy import fcluster
 import sys
 import math
+import gc
 
 ##################################################################
 #                           LOGGING
@@ -376,7 +377,7 @@ def plot_closeness(t, duration=2*24*60*60, mask=32, fmt=None,
         logger.warning("svl len: "+str(len(svl)))
         print len(svl)
 
-        ccache = vv.init_ccache(None, ccachef, t, duration, mask, fmt, oddballs, maxmissing)
+        ccache = vv.init_ccache(None, ccachef, t+duration*l, duration, mask, fmt, oddballs, maxmissing)
 
         print "calculating closeness for resolvers..."
         for i in xrange(0, len(svl)-1):
@@ -384,6 +385,9 @@ def plot_closeness(t, duration=2*24*60*60, mask=32, fmt=None,
                 vals.append(ccache[svl[i]][svl[j]])
                 means[svl[i].get_id()].append(vals[-1])
                 means[svl[j].get_id()].append(vals[-1])
+        ccache.dump()
+        del ccache, svl, fmt
+        gc.collect()
 
     print "plotting..."
     fig, ax = plt.subplots(1, 1)
@@ -412,7 +416,6 @@ def plot_closeness(t, duration=2*24*60*60, mask=32, fmt=None,
         df.list2col(vals))
     df.overwrite(statedir+'overall_avg_closeness'+fname+'.csv',
         df.list2col([(z, np.mean(means[z])) for z in means]))
-    ccache.dump()
 
 
 def plot_closeness_diff_desc(t, duration=30000, mask=32, fmt=None,
