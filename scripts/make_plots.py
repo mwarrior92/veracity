@@ -5,6 +5,7 @@ import numpy as np
 import veracity_vector as vv
 import metric_validation as mv
 import clientcompare as cc
+import matplotlib.cm as cm
 import vgraphs as vg
 import networkx as nx
 from collections import defaultdict
@@ -16,6 +17,7 @@ from scipy.cluster.hierarchy import fcluster
 import sys
 import math
 import gc
+import copy
 
 ##################################################################
 #                           LOGGING
@@ -105,8 +107,93 @@ def plot_fmeasure(start_time, method="average", fname="", Zf=False, **kwas):
     :param method: the linkage method to be used
     :param fname: string to be appended to end of plot file name
     :param **kwas: keyword arguments for vv.get_svl()
+
+    scatter plot:
+        x -> max distance threshold
+        y -> f-measure
+        lineplot -> # components (y)
+
+    other output:
+        list of desc. that shared optimal components
     '''
-    Z, X = get_zx(start_time, method, fname, Zf, **kwas)    # thresholds = np.arange(0.
+
+    Z, svl = get_zx(start_time, method, fname, Zf, **kwas)
+    dsvl = dict()
+    dsvl['country'] = vv.country_svl(svl)
+    dsvl['asn'] = vv.asn_svl(svl)
+    dsvl['subnet'] = vv.subnet_svl(svl)
+    dsvl['prefix'] = vv.prefix_svl(svl)
+    dsvl['ldns'] = vv.ldns_svl(svl, rmask, False)
+    fmtmask = ipp.make_v4_prefix_mask(rmask)
+    to_remove = [
+            '208.67.222.123',   # OpenDNS
+            '208.67.220.123',
+            '8.8.8.8',          # Google Public DNS
+            '8.8.4.4',
+            '64.6.64.6',        # Verisign
+            '64.6.65.6']
+    # remove massive public DNS providers
+    for ip in to_remove:
+        tmp = ipp.ip2int(ip) & fmtmask
+        if tmp in lsvl:
+            del lsvl[tmp]
+    vals = defaultdict(list)
+    grouping = dict()
+    count = list()
+    for max_dist in np.arange(0, 1.01, .01):
+        data = defaultdict(lambda: defaultdict(list))
+        labels = fcluster(Z, max_dist, criterion='distance')
+        clusters = [[(c, svl[z]) for z, c in enumerate(labels) if c == y] \
+                for y in set(labels)]
+        if len(clusters) > 1 and len(clusters) < len(svl):
+            count.append(max_dist, len(clusters))
+            for c, blob in clusters:
+                for desc in dsvl:
+                cluster = [getattr(sv,"get_"+desc)() for sv in blob]
+                for d in set(cluster):
+                    localcount = float(len([z for z in cluster if z == d]))
+                    localsize = float(len(cluster))
+                    globalsize = float(len(dsvl[desc][d]))
+                    precision = localcount / localsize
+                    recall = localcount / globalsize
+                    fmeasure = (2*precision*recall)/(precision+recall)
+                    data[desc][d].append((fmeasure, c, max_dist))
+    for desc in data:
+        for d in data[desc]:
+            maxf, maxc, maxd = max(data[desc][d], key=lambda z: z[0])
+            vals[desc].append((maxf, maxd))
+            grouping[(desc, maxc, maxd)].append((d, maxf))
+
+    print "plotting..."
+    fig, ax = plt.subplots(1, 1)
+
+    vals['resolver'] = vals.pop('ldns')
+    colors = iter(cm.rainbow(np.linspace(0, 1, len(vals))))
+    for desc in vals:
+        y, x = zip(*vals[desc])
+        ax.scatter(x, y, label=desc, color=next(colors))
+    plt.xlabel("max distance threshold")
+    plt.ylabel("F-measure")
+    plt.grid()
+    ax2 = ax.twinx()
+    x, y = zip(*count)
+    ax2.plot(x, y)
+    ax2.set_ylabel('# components')
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=xlim)
+    lgd = ps.legend_setup(ax, 4, "top center", True)
+    filename = plotsdir+"fmeasure"+fname
+    fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    plt.close(fig)
+
+    print "saving data..."
+    df.overwrite(statedir+'fmeasure_groups'+fname+'.csv',
+        df.list2col(vals))
+
+    groups = [(z[0], groups[z]) for z in groups if len(groups[z]) > 1]
+    if len(groups) > 0:
+        groups = sorted(groups, key=lambda z: z[0]+str(z[1])+str(z[2]))
+        df.overwrite(plotsdir+"fmeasure_groups"+fname+".csv", df.list2col(groups))
 
 
 def get_zx(start_time, method="single", fname="", Zf=False, **kwas):
@@ -265,7 +352,7 @@ def plot_closeness(start_time, duration, fname="", xlim=[.6, 1.0], loops=15, **k
     for l in xrange(0, loops):
         print "getting svl..."
         kwas['start_time'] = start_time+duration*l
-        svl, fmt, __, ccache = vv.get_svl(**kwas)
+        svl, __, __, ccache = vv.get_svl(**kwas)
         logger.warning("svl len: "+str(len(svl)))
         print len(svl)
 
@@ -276,7 +363,7 @@ def plot_closeness(start_time, duration, fname="", xlim=[.6, 1.0], loops=15, **k
                 means[svl[i].get_id()].append(vals[-1])
                 means[svl[j].get_id()].append(vals[-1])
         ccache.dump()
-        del ccache, svl, fmt
+        del ccache, svl, __
         gc.collect()
 
     print "plotting..."
@@ -624,9 +711,16 @@ def inv_hist(start_time, fname="", thresh=.35, **kwas):
 def plot_self_match(start_time, duration, fname="", loops=7, gap=0, thresh=10,
         **kwas):
     '''
-    lines:  1) domain independent cdf of ALL matches
-            2-n) cdf of matches for domain with answer space > thresh
-            n-m) cdf of matches for ALL domains with answer space < thresh
+    :param start_time: int indicating the earliest query the window should include
+    :param gap: the gap (in seconds) between each iteration's dataset
+    :param loops: the number of iterations (datasets) / 2 (since we need 2 per
+        comparison in this case)
+    :param **kwas: keyword arguments for vv.get_svl()
+
+    plots CDF:
+        x -> closeness to self for back-to-back iteration windows (e.g., days 1-2
+        vs days 3-4, days 5-6 vs days 7-8, ...)
+        y -> CDF of clients
     '''
     valsd = defaultdict(list) # {pid: [vals]}
     bigsvld = dict()
@@ -772,6 +866,17 @@ def plot_examine_diff_diff(start_time, fname="", loops=2, gap=0,
 
 def plot_measure_expansion(start_time, fname="", loops=10, gap=0, thresh=10,
         **kwas):
+    '''
+    :param start_time: int indicating the earliest query the window should include
+    :param gap: the gap (in seconds) between each iteration's dataset
+    :param loops: the number of iterations (datasets)
+    :param **kwas: keyword arguments for vv.get_svl()
+
+    line plot:
+        x -> n (such that it represents the nth iteration)
+        y -> # of new IPs observed by a client on nth iteration
+        line -> each line corresponds to one domain
+    '''
 
     kwas['start_time'] = start_time
     kwas['return_ccache'] = False

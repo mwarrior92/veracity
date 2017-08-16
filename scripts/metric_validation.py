@@ -4,6 +4,7 @@ from warriorpy.net_tools import ipparsing as ipp
 from warriorpy.shorthand import plotstuff as ps
 from matplotlib import pyplot as plt
 from math import log
+from math import factorial as fact
 import numpy as np
 import veracity_vector as vv
 import vgraphs as vg
@@ -39,13 +40,88 @@ plotsdir = df.rightdir(basedir+"plots/")
 ##################################################################
 
 
-def arrange_self_data(start_time, gap=1, loops=2, **kwas):
+def get_domain_matrix(start_time, **kwas):
+    '''
+    :param start_time: int indicating the earliest query the window should include
+    :param **kwas: keyword arguments for vv.get_svl()
+    :return: (m) matrix of client pairs vs domains,
+             (fmt) list of domains
 
+    other outputs:
+        -> csv with pairs vs domains matrix (m)
+        -> csv with list of domain pair correlations (corrs)
+        -> csv with list of mean Jaccard for each domain (means)
+    '''
+    kwas['start_time'] = start_time
+    kwas['return_ccache'] = False
+    svl, fmt, anssets = vv.get_svl(**kwas)
+    combs = fact(len(svl))/(fact(2)*fact(len(svl)-2))
+    m = np.zeros(combs, len(fmt)))
+    p = 0
+    for i in xrange(0, len(svl)-1):
+        a = svl[i]
+        for j in xrange(i+1, len(svl)):
+            b = svl[j]
+            for k in xrange(0, len(fmt)):
+                domtotal = sum([a[dom][z] for z in a[dom]]+[b[dom][z] for z in b[dom]])
+                overlap = set(a[dom]).intersection(set(b[dom]))
+                aweight = [a[dom][z] for z in a[dom] if z in overlap]
+                bweight = [b[dom][z] for z in b[dom] if z in overlap]
+                m[p,k] = sum(aweight+bweight)/domtotal
+            p += 1
+
+    df.overwrite(plotsdir+"dommatrix"+fname+".csv", df.list2col(fmt))
+    df.append(plotsdir+"dommatrix"+fname+".csv", df.list2col(m))
+
+    C = np.corrcoef(m, rowvar=False)
+    corrs = list()
+    for i in xrange(0, len(fmt)-1):
+        for j in xrange(i+1, len(fmt)):
+            corrs.append((fmt[i]+"_"+fmt[j], C[i, j]))
+    corrs = sorted(corrs, key=lambda z: z[1])
+    means = sorted(fmt, zip(np.mean(m, axis=0)), key=lambda z: z[1])
+
+    df.overwrite(plotsdir+"domcorr"+fname+".csv",df.list2col(corrs))
+    df.overwrite(plotsdir+"dommean"+fname+".csv",df.list2col(means))
+
+    meand = dict(means)
+    # get mean jaccard vs # IPs seen
+    mj_ni = [(meand[dom], len(anssets[dom])) for dom in meand]
+
+    fig, ax = plt.subplots(1, 1)
+
+    colors = iter(cm.rainbow(np.linspace(0, 1, len(mj_ni))))
+    for x, y in mj_ni:
+        ax.scatter(x, y, color=next(colors))
+    plt.xlabel("mean jaccard")
+    plt.ylabel("# IPs observed")
+    plt.grid()
+    ax2 = ax.twinx()
+    x, y = zip(*count)
+    ax2.plot(x, y)
+    ax2.set_ylabel('# components')
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5, ylog=True)
+    filename = plotsdir+"jaccard_vs_ipspace"+fname
+    fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    plt.close(fig)
+
+    return m, fmt
+
+
+def arrange_self_data(start_time, gap=0, loops=2, **kwas):
+    '''
+    :param start_time: int indicating the earliest query the window should include
+    :param gap: the gap (in seconds) between each iteration's dataset
+    :param loops: the number of iterations (datasets)
+    :param **kwas: keyword arguments for vv.get_svl()
+    '''
     svld = defaultdict(list) # dict {id: [svl]}
     allsvl = list()
     allfmt = set()
     anssets = defaultdict(set)
 
+    kwas['return_ccache'] = False
     for l in xrange(0, loops):
         kwas['start_time'] = start_time+l*(gap+duration)
         svl, fmt2, anssets2 = vv.get_svl(**kwas)
@@ -280,3 +356,4 @@ def examine_diff_diff(svld):
         for dom in tmpsm:
             sm[dom].append(np.mean(tmpsm[dom]))
     return sm
+

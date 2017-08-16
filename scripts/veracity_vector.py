@@ -526,7 +526,8 @@ def get_weighting(anssets):
 @vngr.cache_me_outside
 def get_svl(start_time, duration=30000, mask=32, fmt=None, country_set=None,
         oddballs=True, maxmissing=0, return_ccache=True,
-        ccachef=df.rightdir(statedir+"pickles/")+"ccache.pickle"):
+        ccachef=df.rightdir(statedir+"pickles/")+"ccache.pickle",
+        mindomsize=2):
     '''
     :param t: int indicating the earliest query the window should include
     :param duration: int indication the span of time covered by the window,
@@ -551,7 +552,8 @@ def get_svl(start_time, duration=30000, mask=32, fmt=None, country_set=None,
     # remove any domains that only have 1 IP (since all nodes will see the
     # same thing)
     for dom in fmt:
-        if len(anssets[dom]) < 2 or ('google' in dom and dom != 'google.com.')\
+        if len(anssets[dom]) < mindomsize \
+          or ('google' in dom and dom != 'google.com.')\
           or len([sv for sv in svl if dom not in sv]) > 0.5*len(svl):
             del anssets[dom]
     fmt = sorted(list(set(anssets.keys()).intersection(set(fmt))))
@@ -565,7 +567,7 @@ def get_svl(start_time, duration=30000, mask=32, fmt=None, country_set=None,
                 logger.debug(ipp.int2ip(val))
 
     if return_ccache:
-        ccache = vv.init_ccache(None, ccachef, start_time, duration, mask, fmt, oddballs, maxmissing)
+        ccache = init_ccache(None, ccachef, start_time, duration, mask, fmt, oddballs, maxmissing)
         return svl, fmt, dict(anssets), ccache
     else:
         return svl, fmt, dict(anssets)
