@@ -101,7 +101,7 @@ def sausage_linkage(start_time, method="single", fname="", Zf=False, xlim=None, 
     plt.savefig(filename+'.png', bbox_inches='tight')
 
 
-def plot_fmeasure(start_time, method="average", fname="", Zf=False, **kwas):
+def plot_fmeasure(start_time, method="complete", fname="", Zf=False, **kwas):
     '''
     :param start_time: int indicating the earliest query the window should include
     :param method: the linkage method to be used
@@ -171,17 +171,28 @@ def plot_fmeasure(start_time, method="average", fname="", Zf=False, **kwas):
     colors = iter(cm.rainbow(np.linspace(0, 1, len(vals))))
     for desc in vals:
         y, x = zip(*vals[desc])
-        ax.scatter(x, y, label=desc, color=next(colors))
-    plt.xlabel("max distance threshold")
-    plt.ylabel("F-measure")
-    plt.grid()
-    ax2 = ax.twinx()
+        heatmap, xedges, yedges = np.histogram2d(x, y, bins=50)
+        extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
+        plt.clf()
+        plt.imshow(heatmap.T, extent=extent, origin='lower')
+        cb = PLT.colorbar()
+        cb.set_label('# of '+make_plural(desc))
+        plt.xlabel("max distance threshold")
+        plt.ylabel("F-measure")
+        plt.grid()
+        filename = plotsdir+"fmeasure_"+desc+fname
+        fig.savefig(filename+'.png', bbox_inches='tight')
+        fig.savefig(filename+'.pdf', bbox_inches='tight')
+        plt.close(fig)
+
+    fig, ax = plt.subplots(1, 1)
     x, y = zip(*count)
-    ax2.plot(x, y)
-    ax2.set_ylabel('# components')
+    ax.plot(x, y)
+    plt.xlabel("max distance threshold")
+    ax.set_ylabel('# components')
     ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=xlim)
     lgd = ps.legend_setup(ax, 4, "top center", True)
-    filename = plotsdir+"fmeasure"+fname
+    filename = plotsdir+"component_count"+fname
     fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
     fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
     plt.close(fig)
@@ -194,6 +205,73 @@ def plot_fmeasure(start_time, method="average", fname="", Zf=False, **kwas):
     if len(groups) > 0:
         groups = sorted(groups, key=lambda z: z[0]+str(z[1])+str(z[2]))
         df.overwrite(plotsdir+"fmeasure_groups"+fname+".csv", df.list2col(groups))
+
+
+def make_plural(desc):
+        if desc == 'country':
+            return 'countries'
+        if desc == 'subnet':
+            return 'subnets'
+        if desc == 'asn':
+            return 'ASNs'
+        if desc == 'prefix':
+            return 'prefixes'
+        if desc == 'resolver' or desc == 'ldns':
+            return 'resolvers'
+
+
+def change_in_components(start_time, duration, comp_count=100.0,
+        method="complete", fname="", loops=15, Zf=False, **kwas):
+    '''
+    :param start_time: int indicating the earliest query the window should include
+    :param method: the linkage method to be used
+    :param fname: string to be appended to end of plot file name
+    :param **kwas: keyword arguments for vv.get_svl()
+    '''
+    components = list()
+    kwas['duration'] = duration
+    for i in xrange(0, loops):
+        Z, svl = get_zx(start_time, method, fname, Zf, **kwas)
+        best = 9999999999
+        best_set = None
+        prev = best
+        for max_dist in np.arange(0, 1.01, .01):
+            data = defaultdict(lambda: defaultdict(list))
+            labels = fcluster(Z, max_dist, criterion='distance')
+            clusters = [(str(y)+"_"+str(max_dist), set([svl[z].get_id() for z,
+                c in enumerate(labels) if c == y])) for y in set(labels)]
+            count = float(len([z for z in clusters if len(z)>1]))
+            if abs(1-(count/comp_count)) < best:
+                best = abs(1-(count/comp_count))
+                best_set = (clusters, max_dist, i)
+            # stop it when it starts moving away from target
+            if count > prev and prev > comp_count:
+                break
+            prev = count
+        components.append(best_set)
+        start_time += duration
+
+    dcomps = [z[0] for z in components]
+    '''
+    for i in xrange(0, len(dcomps)):
+        for j in xrange(0, len(dcomps[i])):
+            label = dcomps[i][j][0]
+            dcomps[i] = {"label": dcomps[i][0]
+
+    for i in xrange(0, len(components)-1):
+        setA = components[i]
+        for j in xrange(i+1, len(components)):
+            setB = components[j]
+            dist = (j-i)*duration
+            for la, a in setA:
+                maxol = 0
+                for lb, b in setB:
+                    aub = float(len(a.union(b)))
+                    anb = float(len(a.intersection(b)))
+                    overlap = anb/aub
+                    if overlap > maxol:
+                        maxol = overlap
+    '''
 
 
 def get_zx(start_time, method="single", fname="", Zf=False, **kwas):
@@ -345,6 +423,8 @@ def plot_closeness(start_time, duration, fname="", xlim=[.6, 1.0], loops=15, **k
         1) CDF for pairwise closeness of each pair
         2) CDF for the average pairwise closeness experienced by each probe
         across all other probes
+
+    NOTE: plot 3.1
     '''
     means = defaultdict(list)
     vals = list()
@@ -383,7 +463,7 @@ def plot_closeness(start_time, duration, fname="", xlim=[.6, 1.0], loops=15, **k
     plt.xlabel("pairwise probe closeness")
     plt.ylabel("CDF of pairs")
     lgd = ps.legend_setup(ax, 4, "top center", True)
-    filename = plotsdir+"closeness_diff_desc"+fname
+    filename = plotsdir+"overall_closeness"+fname
     fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
     fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
     plt.close(fig)
@@ -407,6 +487,8 @@ def plot_closeness_diff_desc(start_time, fname="", xlim=[.6, 1.0], rmask=16, **k
     CDF of the pairwise closeness of clients, such that the clients in a pair
     come from different groups in the descriptor (e.g., different countries
         for the country descriptor)
+
+    NOTE: plot 4.2
     '''
     print "getting svl..."
     kwas['start_time'] = start_time
@@ -527,6 +609,8 @@ def plot_closeness_same_desc(start_time, fname="", xlim=[.6, 1.0], rmask=16, **k
     CDF of the pairwise closeness of clients, such that the clients in a pair
     come from the same groups in the descriptor (e.g., same country for the
         country descriptor)
+
+    NOTE: plot 4.1
     '''
     print "getting svl..."
     kwas['start_time'] = start_time
@@ -721,6 +805,8 @@ def plot_self_match(start_time, duration, fname="", loops=7, gap=0, thresh=10,
         x -> closeness to self for back-to-back iteration windows (e.g., days 1-2
         vs days 3-4, days 5-6 vs days 7-8, ...)
         y -> CDF of clients
+
+    NOTE: plot 3.2
     '''
     valsd = defaultdict(list) # {pid: [vals]}
     bigsvld = dict()
@@ -864,7 +950,7 @@ def plot_examine_diff_diff(start_time, fname="", loops=2, gap=0,
                 df.list2col(vals[i]))
 
 
-def plot_measure_expansion(start_time, fname="", loops=10, gap=0, thresh=10,
+def plot_measure_expansion(start_time, fname="", loops=30, gap=0, thresh=10,
         **kwas):
     '''
     :param start_time: int indicating the earliest query the window should include

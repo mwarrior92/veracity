@@ -11,6 +11,7 @@ import cPickle as pickle
 import pprint
 import numbers
 import time
+import copy
 
 """
 class for answer vectors
@@ -260,6 +261,10 @@ def ldns_svl(svl, rmask=32, allowPrivate=True):
     return csvl
 
 
+def ddfloat():
+    return defaultdict(float)
+
+
 class smartvec:
     def __init__(self, d, mask=32, oddballs=False):
         '''
@@ -275,23 +280,25 @@ class smartvec:
         NOTE: after mask is applied, original IPs are not preserved; for
             comparisons, separate sv's should be constructed
         '''
-        self.vec = defaultdict(lambda: defaultdict(float)) # {domain: {ans: cum. weight}}
+        self.vec = defaultdict(ddfloat) # {domain: {ans: cum. weight}}
         fmtmask = ipp.make_v4_prefix_mask(mask)
-        self.inds = dict()
+        self.query_count = defaultdict(float)
+        self.answer_count = defaultdict(float)
+        self.inds = defaultdict(list)
         for i, dom in enumerate(d['domains']):
             query_count = float(len(d['ind'][i]))
             answer_count = float(len(d['answers'][i]))
+            qaratio = query_count / answer_count
+            self.query_count[dom] = query_count
+            self.answer_count[dom] = answer_count
             self.inds[dom] = d['ind'][i]
             for ip in d['answers'][i]:
                 ipm = ip & fmtmask
                 ipstr = ipp.int2ip(ipm)
                 if IP(ipstr+"/32").iptype() == "PUBLIC" or oddballs:
-                    self.vec[dom][ipm] += query_count / answer_count
-            if len(self.vec[dom]) > 0:
-                self.vec[dom] = dict(self.vec[dom])
-            else:
+                    self.vec[dom][ipm] += qaratio
+            if len(self.vec[dom]) < 1:
                 del self.vec[dom]
-        self.vec = dict(self.vec)
         self.mask = mask
         self.ip = set()
         for ipset in d['probe_ip']:
@@ -309,7 +316,27 @@ class smartvec:
         self.id = d['_id']
         self.probe_info = None
         self.owner = None
-        t = self.get_ldns()
+
+
+    def absorb(self, sv):
+        # merge two smartvectors
+        for dom in sv:
+            self.inds[dom] += sv.inds[dom]
+            if dom in self.vec:
+                R1 = self.query_count[dom] / self.answer_count[dom]
+            else:
+                R1 = 1
+            R2 = sv.query_count[dom] / sv.answer_count[dom]
+            Q1 = self.query_count[dom]
+            Q2 = sv.query_count[dom]
+            A = self.answer_count[dom]+sv.answer_count[dom]
+            self.answer_count[dom] = A
+            self.query_count[dom] = Q1 + Q2
+            for ip in set(sv.vec[dom].keys()+self.vec[dom].keys()):
+                self.vec[dom][ip] *= (R1*Q1/A)
+                self.vec[dom][ip] += (sv.vec[dom][ip]*(R2*Q2/A))
+        self.ip = self.ip.union(sv.ip)
+        self.ldns = sorted(list(set(self.ldns+sv.ldns)))
 
 
     def __repr__(self):
@@ -540,6 +567,13 @@ def get_svl(start_time, duration=30000, mask=32, fmt=None, country_set=None,
         False, will only include public IPs
     :return: list of smartvecs
     '''
+    # if the duration is too long, mongo times out the cursor before we can
+    # finish processing, so we should break it into smaller jobs with
+    # get_big_svl()
+    if duration > 24*60*60:
+        logger.warning("using get_big_svl(), which assumes that 'duration' is a multple of 24 hours")
+        return get_big_svl(start_time, duration, mask, fmt, country_set,
+            oddballs, maxmissing, return_ccache, ccachef, mindomsize)
     logger.info("->window...")
     window = get_window(start_time, duration, country_set=country_set, domain_set=fmt)
 
@@ -553,7 +587,6 @@ def get_svl(start_time, duration=30000, mask=32, fmt=None, country_set=None,
     # same thing)
     for dom in fmt:
         if len(anssets[dom]) < mindomsize \
-          or ('google' in dom and dom != 'google.com.')\
           or len([sv for sv in svl if dom not in sv]) > 0.5*len(svl):
             del anssets[dom]
     fmt = sorted(list(set(anssets.keys()).intersection(set(fmt))))
@@ -565,6 +598,66 @@ def get_svl(start_time, duration=30000, mask=32, fmt=None, country_set=None,
         for val in tmp:
             if type(val) is int:
                 logger.debug(ipp.int2ip(val))
+
+    if return_ccache:
+        ccache = init_ccache(None, ccachef, start_time, duration, mask, fmt, oddballs, maxmissing)
+        return svl, fmt, dict(anssets), ccache
+    else:
+        return svl, fmt, dict(anssets)
+
+
+def get_big_svl(start_time, duration=30000, mask=32, fmt=None, country_set=None,
+        oddballs=True, maxmissing=0, return_ccache=True,
+        ccachef=df.rightdir(statedir+"pickles/")+"ccache.pickle",
+        mindomsize=1):
+    '''
+    see get_svl()
+    '''
+    dur = 60*60*24
+    end_time = start_time + duration
+
+    anssets = defaultdict(set)
+    myfmt = set()
+
+    svl, tmp_fmt, tmp_anssets = get_svl(start_time, duration=dur,
+            mask=mask, fmt=None, country_set=country_set,
+            oddballs=oddballs, maxmissing=1000, return_ccache=False,
+            ccachef=ccachef, mindomsize=1)
+    svld = dict()
+    for sv in svl:
+        svld[sv.get_id()] = sv
+    for dom in set(anssets.keys()+tmp_anssets.keys()):
+        anssets[dom] |= set(tmp_anssets[dom])
+    myfmt |= set(tmp_fmt)
+    start_time += dur
+
+    while start_time+dur <= end_time:
+        tmp_svl, tmp_fmt, tmp_anssets = get_svl(start_time, duration=dur,
+            mask=mask, fmt=None, country_set=country_set,
+            oddballs=oddballs, maxmissing=1000, return_ccache=False,
+            ccachef=ccachef, mindomsize=1)
+
+        for dom in set(anssets.keys()+tmp_anssets.keys()):
+            anssets[dom] |= set(tmp_anssets[dom])
+        myfmt |= set(tmp_fmt)
+
+        for sv in tmp_svl:
+            svid = sv.get_id()
+            if svid in svld:
+                svld[svid].absorb(sv)
+            else:
+                svld[svid] = sv
+
+        start_time += dur
+
+    svl = svld.values()
+    if fmt is None:
+        fmt = myfmt
+    for dom in fmt:
+        if len(anssets[dom]) < mindomsize \
+          or len([sv for sv in svl if dom not in sv]) > 0.5*len(svl):
+            del anssets[dom]
+    svl = reduce_svl(svl, fmt, maxmissing)
 
     if return_ccache:
         ccache = init_ccache(None, ccachef, start_time, duration, mask, fmt, oddballs, maxmissing)

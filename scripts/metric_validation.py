@@ -11,6 +11,7 @@ import vgraphs as vg
 import networkx as nx
 from collections import defaultdict
 from statsmodels.distributions.empirical_distribution import ECDF
+import matplotlib.cm as cm
 
 ##################################################################
 #                           LOGGING
@@ -40,7 +41,7 @@ plotsdir = df.rightdir(basedir+"plots/")
 ##################################################################
 
 
-def get_domain_matrix(start_time, **kwas):
+def get_domain_matrix(start_time, fname="", **kwas):
     '''
     :param start_time: int indicating the earliest query the window should include
     :param **kwas: keyword arguments for vv.get_svl()
@@ -56,13 +57,14 @@ def get_domain_matrix(start_time, **kwas):
     kwas['return_ccache'] = False
     svl, fmt, anssets = vv.get_svl(**kwas)
     combs = fact(len(svl))/(fact(2)*fact(len(svl)-2))
-    m = np.zeros(combs, len(fmt)))
+    m = np.zeros((combs, len(fmt)))
     p = 0
     for i in xrange(0, len(svl)-1):
         a = svl[i]
         for j in xrange(i+1, len(svl)):
             b = svl[j]
             for k in xrange(0, len(fmt)):
+                dom = fmt[k]
                 domtotal = sum([a[dom][z] for z in a[dom]]+[b[dom][z] for z in b[dom]])
                 overlap = set(a[dom]).intersection(set(b[dom]))
                 aweight = [a[dom][z] for z in a[dom] if z in overlap]
@@ -79,7 +81,7 @@ def get_domain_matrix(start_time, **kwas):
         for j in xrange(i+1, len(fmt)):
             corrs.append((fmt[i]+"_"+fmt[j], C[i, j]))
     corrs = sorted(corrs, key=lambda z: z[1])
-    means = sorted(fmt, zip(np.mean(m, axis=0)), key=lambda z: z[1])
+    means = sorted(zip(fmt, np.mean(m, axis=0)), key=lambda z: z[1])
 
     df.overwrite(plotsdir+"domcorr"+fname+".csv",df.list2col(corrs))
     df.overwrite(plotsdir+"dommean"+fname+".csv",df.list2col(means))
@@ -96,14 +98,10 @@ def get_domain_matrix(start_time, **kwas):
     plt.xlabel("mean jaccard")
     plt.ylabel("# IPs observed")
     plt.grid()
-    ax2 = ax.twinx()
-    x, y = zip(*count)
-    ax2.plot(x, y)
-    ax2.set_ylabel('# components')
     ps.set_dim(fig, ax, xdim=13, ydim=7.5, ylog=True)
     filename = plotsdir+"jaccard_vs_ipspace"+fname
-    fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
-    fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
+    fig.savefig(filename+'.png', bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_inches='tight')
     plt.close(fig)
 
     return m, fmt

@@ -67,9 +67,9 @@ def closest_diff_desc(start_time, fname="", xlim=[.6, 1.0], **kwas):
     logger.warning("svl len: "+str(len(svl)))
 
     print("getting descriptor lists...")
-    #csvl = vv.country_svl(svl)
+    csvl = vv.country_svl(svl)
     asvl = vv.asn_svl(svl)
-    #ssvl = vv.subnet_svl(svl)
+    ssvl = vv.subnet_svl(svl)
     psvl = vv.prefix_svl(svl)
 
     idc = defaultdict(list)
