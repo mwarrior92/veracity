@@ -29,7 +29,7 @@ datafiles = df.listfiles(basedir+rawdirlist[0], fullpath=True)
 # database setup
 mclient = MongoClient()
 db = mclient.veracity
-coll = db.m30002_may17_full
+coll = db.july21
 probe_cache = db.probe_data
 
 ##################################################################
@@ -41,8 +41,11 @@ finished = False
 # NOTE: this is not designed to be run in parrallel; multiple instances of this
 # code will mess up the db entry pattern
 def append_db(fnum):
+    allthedoms = set()
     print "fnum is: "+str(fnum)
-    lr = linereader.linereader(datafiles[fnum])
+    # lr = linereader.linereader(datafiles[fnum])
+    f = [z for z in datafiles if z[-3:]=='txt'][0]
+    lr = linereader.linereader(f)
     print "sorting..."
     lastentry = coll.find().sort([('ind',-1)]).limit(1)
     if lastentry.count() > 0:
@@ -82,13 +85,14 @@ def append_db(fnum):
                         # if we haven't seen it, begin appending from the end
                         pos = linenum
                 except KeyError as e:
-                    logger.error('bad key: '+str(data))
+                    #logger.error('bad key: '+str(data))
+                    pass
                 # break once we've got the right '0' position for this file
                 break
         if pos == 10:
             return
-
-    lr = linereader.linereader(datafiles[fnum])
+    #lr = linereader.linereader(datafiles[fnum])
+    lr = linereader.linereader(f)
 
     print "pos is: " + str(pos)
     sincelastmiss = 0
@@ -106,8 +110,14 @@ def append_db(fnum):
         try:
             logger.debug("parsing json...")
             parsed = p.parse_dns_json(data)
+            if 'domain' not in parsed:
+                continue
+            if not (len([z for z in parsed['domain'].split('.') if not z.isdigit()]) > 0\
+                and 'ripe' not in parsed['domain'] and 'root' not in\
+                parsed['domain']):
+                continue
         except KeyError as e:
-            logger.error('bad key: '+str(data))
+            #logger.error('bad key: '+str(data))
             continue
 
         parsed['ind'] = ind
@@ -152,10 +162,15 @@ def append_db(fnum):
             print "inserting..."
             probe_cache.insert_one(parsed)
         q.append(parsed)
+        if len([z for z in parsed['domain'].split('.') if not z.isdigit()]) > 0\
+            and 'ripe' not in parsed['domain'] and 'root' not in parsed['domain']:
+                allthedoms.add(parsed['domain'])
         if ind % 500 == 0:
             coll.insert_many(q)
             q = list()
             print "entries so far: "+str(ind)
+    print len(allthedoms), 'domains'
+    print allthedoms
     global finished
     finished = True
     coll.insert_many(q)
@@ -168,12 +183,15 @@ if __name__ == "__main__":
         print datafile
         logger.debug("datafile: "+datafile)
         finished = False
+        append_db(index)
+        '''
         while not finished:
             try:
                 append_db(index)
                 print finished
             except Exception as e:
                 logger.error(e)
+        '''
 
 
 def update_probe_info(fields):

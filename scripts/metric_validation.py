@@ -12,6 +12,7 @@ import networkx as nx
 from collections import defaultdict
 from statsmodels.distributions.empirical_distribution import ECDF
 import matplotlib.cm as cm
+import math
 
 ##################################################################
 #                           LOGGING
@@ -40,6 +41,25 @@ plotsdir = df.rightdir(basedir+"plots/")
 #                           CODE
 ##################################################################
 
+def get_ansset_sizes(start_time, fname="", **kwas):
+    '''
+    :param start_time: int indicating the earliest query the window should include
+    :param **kwas: keyword arguments for vv.get_svl()
+    :return: (m) matrix of client pairs vs domains,
+             (fmt) list of domains
+
+    other outputs:
+        -> csv with pairs vs domains matrix (m)
+        -> csv with list of domain pair correlations (corrs)
+        -> csv with list of mean Jaccard for each domain (means)
+    '''
+    kwas['start_time'] = start_time
+    kwas['return_ccache'] = False
+    svl, fmt, anssets = vv.get_svl(**kwas)
+    anssets = sorted([(z, len(anssets[z])) for z in anssets],
+            key=lambda p: p[1])
+    df.overwrite(plotsdir+"big_ansset"+fname+".csv", df.list2col(anssets))
+
 
 def get_domain_matrix(start_time, fname="", **kwas):
     '''
@@ -56,23 +76,29 @@ def get_domain_matrix(start_time, fname="", **kwas):
     kwas['start_time'] = start_time
     kwas['return_ccache'] = False
     svl, fmt, anssets = vv.get_svl(**kwas)
+    print "svl len", len(svl)
     combs = fact(len(svl))/(fact(2)*fact(len(svl)-2))
     m = np.zeros((combs, len(fmt)))
     p = 0
     for i in xrange(0, len(svl)-1):
         a = svl[i]
+        logger.warning(str(i)+", "+str(a.get_id()))
+        aset = dict()
+        for dom in a:
+            aset[dom] = set(a[dom])
         for j in xrange(i+1, len(svl)):
             b = svl[j]
             for k in xrange(0, len(fmt)):
                 dom = fmt[k]
-                domtotal = sum([a[dom][z] for z in a[dom]]+[b[dom][z] for z in b[dom]])
-                overlap = set(a[dom]).intersection(set(b[dom]))
-                aweight = [a[dom][z] for z in a[dom] if z in overlap]
-                bweight = [b[dom][z] for z in b[dom] if z in overlap]
-                m[p,k] = sum(aweight+bweight)/domtotal
+                domtotal = sum([a[dom][z] for z in a[dom]])+sum([b[dom][z] for z in b[dom]])
+                overlap = aset[dom].intersection(b[dom])
+                weight = 0
+                for z in overlap:
+                    weight += (a[dom][z]+b[dom][z])
+                m[p,k] = weight/domtotal
             p += 1
 
-    df.overwrite(plotsdir+"dommatrix"+fname+".csv", df.list2col(fmt))
+    df.overwrite(plotsdir+"dommatrix"+fname+".csv", df.list2line(fmt)+"\n")
     df.append(plotsdir+"dommatrix"+fname+".csv", df.list2col(m))
 
     C = np.corrcoef(m, rowvar=False)
@@ -80,7 +106,7 @@ def get_domain_matrix(start_time, fname="", **kwas):
     for i in xrange(0, len(fmt)-1):
         for j in xrange(i+1, len(fmt)):
             corrs.append((fmt[i]+"_"+fmt[j], C[i, j]))
-    corrs = sorted(corrs, key=lambda z: z[1])
+    corrs = sorted([y for y in corrs if not math.isnan(y[1])], key=lambda z: z[1])
     means = sorted(zip(fmt, np.mean(m, axis=0)), key=lambda z: z[1])
 
     df.overwrite(plotsdir+"domcorr"+fname+".csv",df.list2col(corrs))
@@ -89,6 +115,9 @@ def get_domain_matrix(start_time, fname="", **kwas):
     meand = dict(means)
     # get mean jaccard vs # IPs seen
     mj_ni = [(meand[dom], len(anssets[dom])) for dom in meand]
+    d_mj_ni = sorted([(dom, meand[dom], len(anssets[dom])) for dom in meand],
+            key=lambda z: z[1])
+    df.overwrite(plotsdir+"jaccard_vs_ipspace"+fname+".csv", df.list2col(d_mj_ni))
 
     fig, ax = plt.subplots(1, 1)
 
@@ -97,11 +126,12 @@ def get_domain_matrix(start_time, fname="", **kwas):
         ax.scatter(x, y, color=next(colors))
     plt.xlabel("mean jaccard")
     plt.ylabel("# IPs observed")
-    plt.grid()
-    ps.set_dim(fig, ax, xdim=13, ydim=7.5, ylog=True)
+    ax.grid(b=True, which='major', color='b', linestyle='-')
+    ps.set_dim(fig, ax, ylog=True)
     filename = plotsdir+"jaccard_vs_ipspace"+fname
     fig.savefig(filename+'.png', bbox_inches='tight')
     fig.savefig(filename+'.pdf', bbox_inches='tight')
+    plt.show()
     plt.close(fig)
 
     return m, fmt
@@ -121,7 +151,7 @@ def arrange_self_data(start_time, gap=0, loops=2, **kwas):
 
     kwas['return_ccache'] = False
     for l in xrange(0, loops):
-        kwas['start_time'] = start_time+l*(gap+duration)
+        kwas['start_time'] = start_time+l*(gap+kwas['duration'])
         svl, fmt2, anssets2 = vv.get_svl(**kwas)
         logger.warning("svl len: "+str(len(svl)))
         allfmt |= set(fmt2)

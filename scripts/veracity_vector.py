@@ -62,6 +62,9 @@ pdata = db.probe_data
 #printing
 pp = pprint.PrettyPrinter(indent=4)
 
+# vector processor
+vproc = df.picklein(statedir+'nmf_rank20_pkr01.pickle')
+
 ##################################################################
 #                           CODE
 ##################################################################
@@ -626,8 +629,8 @@ def get_big_svl(start_time, duration=30000, mask=32, fmt=None, country_set=None,
     svld = dict()
     for sv in svl:
         svld[sv.get_id()] = sv
-    for dom in set(anssets.keys()+tmp_anssets.keys()):
-        anssets[dom] |= set(tmp_anssets[dom])
+    for dom in tmp_anssets.keys():
+        anssets[dom] |= tmp_anssets[dom]
     myfmt |= set(tmp_fmt)
     start_time += dur
 
@@ -637,8 +640,8 @@ def get_big_svl(start_time, duration=30000, mask=32, fmt=None, country_set=None,
             oddballs=oddballs, maxmissing=1000, return_ccache=False,
             ccachef=ccachef, mindomsize=1)
 
-        for dom in set(anssets.keys()+tmp_anssets.keys()):
-            anssets[dom] |= set(tmp_anssets[dom])
+        for dom in tmp_anssets.keys():
+            anssets[dom] |= tmp_anssets[dom]
         myfmt |= set(tmp_fmt)
 
         for sv in tmp_svl:
@@ -652,7 +655,7 @@ def get_big_svl(start_time, duration=30000, mask=32, fmt=None, country_set=None,
 
     svl = svld.values()
     if fmt is None:
-        fmt = myfmt
+        fmt = list(myfmt)
     for dom in fmt:
         if len(anssets[dom]) < mindomsize \
           or len([sv for sv in svl if dom not in sv]) > 0.5*len(svl):

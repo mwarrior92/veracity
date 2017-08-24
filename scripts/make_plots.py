@@ -149,15 +149,15 @@ def plot_fmeasure(start_time, method="complete", fname="", Zf=False, **kwas):
             count.append(max_dist, len(clusters))
             for c, blob in clusters:
                 for desc in dsvl:
-                cluster = [getattr(sv,"get_"+desc)() for sv in blob]
-                for d in set(cluster):
-                    localcount = float(len([z for z in cluster if z == d]))
-                    localsize = float(len(cluster))
-                    globalsize = float(len(dsvl[desc][d]))
-                    precision = localcount / localsize
-                    recall = localcount / globalsize
-                    fmeasure = (2*precision*recall)/(precision+recall)
-                    data[desc][d].append((fmeasure, c, max_dist))
+                    cluster = [getattr(sv,"get_"+desc)() for sv in blob]
+                    for d in set(cluster):
+                        localcount = float(len([z for z in cluster if z == d]))
+                        localsize = float(len(cluster))
+                        globalsize = float(len(dsvl[desc][d]))
+                        precision = localcount / localsize
+                        recall = localcount / globalsize
+                        fmeasure = (2*precision*recall)/(precision+recall)
+                        data[desc][d].append((fmeasure, c, max_dist))
     for desc in data:
         for d in data[desc]:
             maxf, maxc, maxd = max(data[desc][d], key=lambda z: z[0])
@@ -179,7 +179,7 @@ def plot_fmeasure(start_time, method="complete", fname="", Zf=False, **kwas):
         cb.set_label('# of '+make_plural(desc))
         plt.xlabel("max distance threshold")
         plt.ylabel("F-measure")
-        plt.grid()
+        ax.grid(b=True, which='both', color='b', linestyle='-')
         filename = plotsdir+"fmeasure_"+desc+fname
         fig.savefig(filename+'.png', bbox_inches='tight')
         fig.savefig(filename+'.pdf', bbox_inches='tight')
@@ -198,7 +198,7 @@ def plot_fmeasure(start_time, method="complete", fname="", Zf=False, **kwas):
     plt.close(fig)
 
     print "saving data..."
-    df.overwrite(statedir+'fmeasure_groups'+fname+'.csv',
+    df.overwrite(plotsdir+'fmeasure_groups'+fname+'.csv',
         df.list2col(vals))
 
     groups = [(z[0], groups[z]) for z in groups if len(groups[z]) > 1]
@@ -228,11 +228,11 @@ def change_in_components(start_time, duration, comp_count=100.0,
     :param fname: string to be appended to end of plot file name
     :param **kwas: keyword arguments for vv.get_svl()
     '''
-    components = list()
+    component_tuples = dict()
     kwas['duration'] = duration
     for i in xrange(0, loops):
         Z, svl = get_zx(start_time, method, fname, Zf, **kwas)
-        best = 9999999999
+        best = -1
         best_set = None
         prev = best
         for max_dist in np.arange(0, 1.01, .01):
@@ -241,37 +241,62 @@ def change_in_components(start_time, duration, comp_count=100.0,
             clusters = [(str(y)+"_"+str(max_dist), set([svl[z].get_id() for z,
                 c in enumerate(labels) if c == y])) for y in set(labels)]
             count = float(len([z for z in clusters if len(z)>1]))
-            if abs(1-(count/comp_count)) < best:
+            if abs(1-(count/comp_count)) > best:
                 best = abs(1-(count/comp_count))
                 best_set = (clusters, max_dist, i)
             # stop it when it starts moving away from target
             if count > prev and prev > comp_count:
                 break
             prev = count
-        components.append(best_set)
+        component_tuples[best_set[2]] = best_set[:2]
         start_time += duration
 
-    dcomps = [z[0] for z in components]
-    '''
-    for i in xrange(0, len(dcomps)):
-        for j in xrange(0, len(dcomps[i])):
-            label = dcomps[i][j][0]
-            dcomps[i] = {"label": dcomps[i][0]
+    df.pickleout(plotsdir+"component_tuples"+fname+".pickle",
+            component_tuples)
 
-    for i in xrange(0, len(components)-1):
-        setA = components[i]
-        for j in xrange(i+1, len(components)):
-            setB = components[j]
-            dist = (j-i)*duration
-            for la, a in setA:
-                maxol = 0
-                for lb, b in setB:
-                    aub = float(len(a.union(b)))
-                    anb = float(len(a.intersection(b)))
-                    overlap = anb/aub
-                    if overlap > maxol:
-                        maxol = overlap
-    '''
+    for i in xrange(0, len(component_tuples)-1):
+        listA = component_tuples[i][0]
+        compA = dict()
+        labelA = dict()
+        for j in xrange(0, len(listA)):
+            labelA[j], compA[j] = zip(*listA[j])
+            compA[j] = set(compA[j])
+        for k in xrange(i+1, len(component_tuples)):
+            listB = component_tuples[k][0]
+            for l in xrange(0, len(listB)):
+                labelB[l], compB[l] = zip(*listB[l])
+            for m in xrange(0, len(listA)):
+                for n in xrange(0, len(listB)):
+                    anb = float(len(compA[m].intersection(compB[n])))
+                    aub = float(len(compA[m].union(compB[n])))
+                    jac = anb/aub
+                    if jac > M[(i,k, m)][0]: # [(runA ind, runB ind, compA ind)]
+                        M[(i,k,m)] = (jac, n) # (jaccard, compB ind)
+                                              # use component_tuples.pickle to
+                                              # map indices to data
+                    if jac == 1.0:
+                        break
+                M2[k-i].append(m[(i,k,m)][0])
+    df.pickleout(plotsdir+"component_matches"+fname+".pickle", M)
+    df.pickleout(plotsdir+"component_changes"+fname+".pickle", M2)
+
+    x = list()
+    y = list()
+    std = list()
+    for dist in M2:
+        x.append(dist)
+        y.append(np.mean(M2[dist]))
+        std.append(np.std(M2[dist]))
+
+    fig, ax = plt.subplots(1, 1)
+    ax.errorbar(x, y, yerr=std)
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=xlim)
+    plt.xlabel("distance in days")
+    plt.ylabel("mean component match")
+    filename = plotsdir+"change_in_components"+fname
+    fig.savefig(filename+'.png', bbox_inches='tight')
+    fig.savefig(filename+'.pdf', bbox_inches='tight')
+    plt.close(fig)
 
 
 def get_zx(start_time, method="single", fname="", Zf=False, **kwas):
@@ -300,12 +325,12 @@ def get_zx(start_time, method="single", fname="", Zf=False, **kwas):
                 k = k + 1
         ccache.dump()
         Z = linkage(dm, method)
-        df.pickleout(statedir+'pickles/'+'Z_'+method+fname+'.pickle', (Z, dm, X))
+        df.pickleout(plotsdir+'pickles/'+'Z_'+method+fname+'.pickle', (Z, dm, X))
         logger.warning('dumped Z to ' \
-                +statedir+'pickles/'+'Z_'+method+fname+'.pickle')
+                +plotsdir+'pickles/'+'Z_'+method+fname+'.pickle')
     else:
-        Z, dm, X = df.picklein(statedir+'pickles/'+'Z_'+method+fname+'.pickle')
-        logger.warning('loaded Z from '+statedir+'pickles/'+'Z_'+method+fname+'.pickle')
+        Z, dm, X = df.picklein(plotsdir+'pickles/'+'Z_'+method+fname+'.pickle')
+        logger.warning('loaded Z from '+plotsdir+'pickles/'+'Z_'+method+fname+'.pickle')
     c, coph_dists = cophenet(Z, dm)
 
     return Z, X
@@ -407,7 +432,7 @@ def plot_optimizing_window(start_time, duration, fname="", xlim=None,
     plt.close(fig)
 
     print "saving data..."
-    outstr = df.overwrite(statedir+fname+'_avg_self_closeness.csv',
+    outstr = df.overwrite(plotsdir+fname+'_avg_self_closeness.csv',
             df.list2col(allvals))
 
 
@@ -469,13 +494,14 @@ def plot_closeness(start_time, duration, fname="", xlim=[.6, 1.0], loops=15, **k
     plt.close(fig)
 
     print "saving data..."
-    df.overwrite(statedir+'overall_closeness'+fname+'.csv',
+    df.overwrite(plotsdir+'overall_closeness'+fname+'.csv',
         df.list2col(vals))
-    df.overwrite(statedir+'overall_avg_closeness'+fname+'.csv',
+    df.overwrite(plotsdir+'overall_avg_closeness'+fname+'.csv',
         df.list2col([(z, np.mean(means[z])) for z in means]))
 
 
-def plot_closeness_diff_desc(start_time, fname="", xlim=[.6, 1.0], rmask=16, **kwas):
+def plot_closeness_diff_desc(start_time, duration, fname="", xlim=[.6, 1.0],
+        rmask=16, loops=31, **kwas):
     '''
     :param start_time: int indicating the earliest query the window should include
     :param fname: string to be appended to end of plot file name
@@ -490,84 +516,86 @@ def plot_closeness_diff_desc(start_time, fname="", xlim=[.6, 1.0], rmask=16, **k
 
     NOTE: plot 4.2
     '''
-    print "getting svl..."
-    kwas['start_time'] = start_time
-    svl, fmt, __, ccache = vv.get_svl(**kwas)
-    logger.warning("svl len: "+str(len(svl)))
-    print len(svl)
-
-    print "getting descriptor lists..."
-    csvl = vv.country_svl(svl)
-    asvl = vv.asn_svl(svl)
-    ssvl = vv.subnet_svl(svl)
-    #osvl = vv.owner_svl(svl)
-    psvl = vv.prefix_svl(svl)
-    lsvl = vv.ldns_svl(svl, rmask, False)
-    fmtmask = ipp.make_v4_prefix_mask(rmask)
-    to_remove = [
-            '208.67.222.123',   # OpenDNS
-            '208.67.220.123',
-            '8.8.8.8',          # Google Public DNS
-            '8.8.4.4',
-            '64.6.64.6',        # Verisign
-            '64.6.65.6']
-    # remove massive public DNS providers
-    for ip in to_remove:
-        tmp = ipp.ip2int(ip) & fmtmask
-        if tmp in lsvl:
-            del lsvl[tmp]
-
-    print "calculating closeness for resolvers..."
     lvals = list()
-    resolvers = [c for c in lsvl if len(lsvl[c]) > 1]
-    for i in xrange(0, len(resolvers)-1):
-        for a in lsvl[resolvers[i]]:
-            for j in xrange(i+1, len(resolvers)):
-                for b in lsvl[resolvers[j]]:
-                    lvals.append(ccache[a][b])
-
-    print "calculating closeness for countries..."
     cvals = list()
-    countries = [c for c in csvl if len(csvl[c]) > 1]
-    for i in xrange(0, len(countries)-1):
-        for a in csvl[countries[i]]:
-            for j in xrange(i+1, len(countries)):
-                for b in csvl[countries[j]]:
-                    cvals.append(ccache[a][b])
-    print "calculating closeness for ASNs..."
     avals = list()
-    asns = [a for a in asvl if len(asvl[a]) > 1]
-    for i in xrange(0, len(asns)-1):
-        for a in asvl[asns[i]]:
-            for j in xrange(i+1, len(asns)):
-                for b in asvl[asns[j]]:
-                    avals.append(ccache[a][b])
-    print "calculating closeness for subnets..."
     svals = list()
-    subnets = [s for s in ssvl if len(ssvl[s]) > 1]
-    for i in xrange(0, len(subnets)-1):
-        for a in ssvl[subnets[i]]:
-            for j in xrange(i+1, len(subnets)):
-                for b in ssvl[subnets[j]]:
-                    svals.append(ccache[a][b])
-    '''
-    print "calculating closeness for owners..."
-    ovals = list()
-    owners = [o for o in osvl if len(osvl[o]) > 1]
-    for i in xrange(0, len(owners)-1):
-        for a in osvl[owners[i]]:
-            for j in xrange(i+1, len(owners)):
-                for b in osvl[owners[j]]:
-                    ovals.append(ccache[a][b])
-    '''
-    print "calculating closeness for prefixes..."
     pvals = list()
-    prefixes = [p for p in psvl if len(psvl[p]) > 1]
-    for i in xrange(0, len(prefixes)-1):
-        for a in psvl[prefixes[i]]:
-            for j in xrange(i+1, len(prefixes)):
-                for b in psvl[prefixes[j]]:
-                    pvals.append(ccache[a][b])
+    kwas['duration'] = duration
+    for l in xrange(0, loops):
+        print "getting svl..."
+        kwas['start_time'] = start_time+duration*l
+        svl, fmt, __, ccache = vv.get_svl(**kwas)
+        logger.warning("svl len: "+str(len(svl)))
+        print len(svl)
+
+        print "getting descriptor lists..."
+        csvl = vv.country_svl(svl)
+        asvl = vv.asn_svl(svl)
+        ssvl = vv.subnet_svl(svl)
+        #osvl = vv.owner_svl(svl)
+        psvl = vv.prefix_svl(svl)
+        lsvl = vv.ldns_svl(svl, rmask, False)
+        fmtmask = ipp.make_v4_prefix_mask(rmask)
+        to_remove = [
+                '208.67.222.123',   # OpenDNS
+                '208.67.220.123',
+                '8.8.8.8',          # Google Public DNS
+                '8.8.4.4',
+                '64.6.64.6',        # Verisign
+                '64.6.65.6']
+        # remove massive public DNS providers
+        for ip in to_remove:
+            tmp = ipp.ip2int(ip) & fmtmask
+            if tmp in lsvl:
+                del lsvl[tmp]
+
+        print "calculating closeness for resolvers..."
+        resolvers = [c for c in lsvl if len(lsvl[c]) > 1]
+        for i in xrange(0, len(resolvers)-1):
+            for a in lsvl[resolvers[i]]:
+                for j in xrange(i+1, len(resolvers)):
+                    for b in lsvl[resolvers[j]]:
+                        lvals.append(ccache[a][b])
+
+        print "calculating closeness for countries..."
+        countries = [c for c in csvl if len(csvl[c]) > 1]
+        for i in xrange(0, len(countries)-1):
+            for a in csvl[countries[i]]:
+                for j in xrange(i+1, len(countries)):
+                    for b in csvl[countries[j]]:
+                        cvals.append(ccache[a][b])
+        print "calculating closeness for ASNs..."
+        asns = [a for a in asvl if len(asvl[a]) > 1]
+        for i in xrange(0, len(asns)-1):
+            for a in asvl[asns[i]]:
+                for j in xrange(i+1, len(asns)):
+                    for b in asvl[asns[j]]:
+                        avals.append(ccache[a][b])
+        print "calculating closeness for subnets..."
+        subnets = [s for s in ssvl if len(ssvl[s]) > 1]
+        for i in xrange(0, len(subnets)-1):
+            for a in ssvl[subnets[i]]:
+                for j in xrange(i+1, len(subnets)):
+                    for b in ssvl[subnets[j]]:
+                        svals.append(ccache[a][b])
+        '''
+        print "calculating closeness for owners..."
+        ovals = list()
+        owners = [o for o in osvl if len(osvl[o]) > 1]
+        for i in xrange(0, len(owners)-1):
+            for a in osvl[owners[i]]:
+                for j in xrange(i+1, len(owners)):
+                    for b in osvl[owners[j]]:
+                        ovals.append(ccache[a][b])
+        '''
+        print "calculating closeness for prefixes..."
+        prefixes = [p for p in psvl if len(psvl[p]) > 1]
+        for i in xrange(0, len(prefixes)-1):
+            for a in psvl[prefixes[i]]:
+                for j in xrange(i+1, len(prefixes)):
+                    for b in psvl[prefixes[j]]:
+                        pvals.append(ccache[a][b])
 
     print "plotting..."
     #vals = [cvals, avals, svals, ovals, pvals]
@@ -592,12 +620,13 @@ def plot_closeness_diff_desc(start_time, fname="", xlim=[.6, 1.0], rmask=16, **k
 
     print "saving data..."
     for i in xrange(0, len(vals)):
-        outstr = df.overwrite(statedir+labels[i]+'_diff.csv',
+        outstr = df.overwrite(plotsdir+labels[i]+'_diff.csv',
                 df.list2col(vals[i]))
     ccache.dump()
 
 
-def plot_closeness_same_desc(start_time, fname="", xlim=[.6, 1.0], rmask=16, **kwas):
+def plot_closeness_same_desc(start_time, duration, fname="", xlim=[.6, 1.0], rmask=16,
+        loops=31, **kwas):
     '''
     :param start_time: int indicating the earliest query the window should include
     :param fname: string to be appended to end of plot file name
@@ -612,83 +641,85 @@ def plot_closeness_same_desc(start_time, fname="", xlim=[.6, 1.0], rmask=16, **k
 
     NOTE: plot 4.1
     '''
-    print "getting svl..."
-    kwas['start_time'] = start_time
-    svl, fmt, __, ccache = vv.get_svl(**kwas)
-    logger.warning("svl len: "+str(len(svl)))
-
-    print "getting descriptor lists..."
-    csvl = vv.country_svl(svl)
-    asvl = vv.asn_svl(svl)
-    ssvl = vv.subnet_svl(svl)
-    #osvl = vv.owner_svl(svl)
-    psvl = vv.prefix_svl(svl)
-    lsvl = vv.ldns_svl(svl, rmask, False)
-    fmtmask = ipp.make_v4_prefix_mask(rmask)
-    to_remove = [
-            '208.67.222.123',   # OpenDNS
-            '208.67.220.123',
-            '8.8.8.8',          # Google Public DNS
-            '8.8.4.4',
-            '64.6.64.6',        # Verisign
-            '64.6.65.6']
-    # remove massive public DNS providers
-    for ip in to_remove:
-        tmp = ipp.ip2int(ip) & fmtmask
-        if tmp in lsvl:
-            del lsvl[tmp]
-
-    print "calculating closeness for resolvers..."
     lvals = list()
-    resolvers = lsvl.keys()
-    for k in resolvers:
-        ksvl = lsvl[k]
-        for a in xrange(0, len(ksvl)-1):
-            for b in xrange(a+1, len(ksvl)):
-                lvals.append(ccache[ksvl[a]][ksvl[b]])
-
-    print "calculating closeness for countries..."
     cvals = list()
-    countries = csvl.keys()
-    for k in countries:
-        ksvl = csvl[k]
-        for a in xrange(0, len(ksvl)-1):
-            for b in xrange(a+1, len(ksvl)):
-                cvals.append(ccache[ksvl[a]][ksvl[b]])
-    print "calculating closeness for ASNs..."
     avals = list()
-    asns = asvl.keys()
-    for k in asns:
-        ksvl = asvl[k]
-        for a in xrange(0, len(ksvl)-1):
-            for b in xrange(a+1, len(ksvl)):
-                avals.append(ccache[ksvl[a]][ksvl[b]])
-    print "calculating closeness for subnets..."
     svals = list()
-    subnets = ssvl.keys()
-    for k in subnets:
-        ksvl = ssvl[k]
-        for a in xrange(0, len(ksvl)-1):
-            for b in xrange(a+1, len(ksvl)):
-                svals.append(ccache[ksvl[a]][ksvl[b]])
-    '''
-    print "calculating closeness for owners..."
-    ovals = list()
-    owners = osvl.keys()
-    for k in owners:
-        ksvl = osvl[k]
-        for a in xrange(0, len(ksvl)-1):
-            for b in xrange(a+1, len(ksvl)):
-                ovals.append(ccache[ksvl[a]][ksvl[b]])
-    '''
-    print "calculating closeness for prefixes..."
     pvals = list()
-    prefixes = psvl.keys()
-    for k in prefixes:
-        ksvl = psvl[k]
-        for a in xrange(0, len(ksvl)-1):
-            for b in xrange(a+1, len(ksvl)):
-                pvals.append(ccache[ksvl[a]][ksvl[b]])
+    kwas['duration'] = duration
+    for l in xrange(0, loops):
+        print "getting svl..."
+        kwas['start_time'] = start_time+duration*l
+        svl, fmt, __, ccache = vv.get_svl(**kwas)
+        logger.warning("svl len: "+str(len(svl)))
+
+        print "getting descriptor lists..."
+        csvl = vv.country_svl(svl)
+        asvl = vv.asn_svl(svl)
+        ssvl = vv.subnet_svl(svl)
+        #osvl = vv.owner_svl(svl)
+        psvl = vv.prefix_svl(svl)
+        lsvl = vv.ldns_svl(svl, rmask, False)
+        fmtmask = ipp.make_v4_prefix_mask(rmask)
+        to_remove = [
+                '208.67.222.123',   # OpenDNS
+                '208.67.220.123',
+                '8.8.8.8',          # Google Public DNS
+                '8.8.4.4',
+                '64.6.64.6',        # Verisign
+                '64.6.65.6']
+        # remove massive public DNS providers
+        for ip in to_remove:
+            tmp = ipp.ip2int(ip) & fmtmask
+            if tmp in lsvl:
+                del lsvl[tmp]
+
+        print "calculating closeness for resolvers..."
+        resolvers = lsvl.keys()
+        for k in resolvers:
+            ksvl = lsvl[k]
+            for a in xrange(0, len(ksvl)-1):
+                for b in xrange(a+1, len(ksvl)):
+                    lvals.append(ccache[ksvl[a]][ksvl[b]])
+
+        print "calculating closeness for countries..."
+        countries = csvl.keys()
+        for k in countries:
+            ksvl = csvl[k]
+            for a in xrange(0, len(ksvl)-1):
+                for b in xrange(a+1, len(ksvl)):
+                    cvals.append(ccache[ksvl[a]][ksvl[b]])
+        print "calculating closeness for ASNs..."
+        asns = asvl.keys()
+        for k in asns:
+            ksvl = asvl[k]
+            for a in xrange(0, len(ksvl)-1):
+                for b in xrange(a+1, len(ksvl)):
+                    avals.append(ccache[ksvl[a]][ksvl[b]])
+        print "calculating closeness for subnets..."
+        subnets = ssvl.keys()
+        for k in subnets:
+            ksvl = ssvl[k]
+            for a in xrange(0, len(ksvl)-1):
+                for b in xrange(a+1, len(ksvl)):
+                    svals.append(ccache[ksvl[a]][ksvl[b]])
+        '''
+        print "calculating closeness for owners..."
+        ovals = list()
+        owners = osvl.keys()
+        for k in owners:
+            ksvl = osvl[k]
+            for a in xrange(0, len(ksvl)-1):
+                for b in xrange(a+1, len(ksvl)):
+                    ovals.append(ccache[ksvl[a]][ksvl[b]])
+        '''
+        print "calculating closeness for prefixes..."
+        prefixes = psvl.keys()
+        for k in prefixes:
+            ksvl = psvl[k]
+            for a in xrange(0, len(ksvl)-1):
+                for b in xrange(a+1, len(ksvl)):
+                    pvals.append(ccache[ksvl[a]][ksvl[b]])
 
     print "plotting..."
     #vals = [cvals, avals, svals, ovals, pvals]
@@ -713,7 +744,7 @@ def plot_closeness_same_desc(start_time, fname="", xlim=[.6, 1.0], rmask=16, **k
 
     print "saving data..."
     for i in xrange(0, len(vals)):
-        outstr = df.overwrite(statedir+labels[i]+'_same.csv',
+        outstr = df.overwrite(plotsdir+labels[i]+'_same.csv',
                 df.list2col(vals[i]))
     ccache.dump()
 
@@ -813,9 +844,9 @@ def plot_self_match(start_time, duration, fname="", loops=7, gap=0, thresh=10,
     kwas['duration'] = duration
     kwas['return_ccache'] = False
     for i in xrange(0, loops):
-        print (t+2*duration*i, duration)
-        kwas['start_time'] = start_time+2*(gap+duration)*i
-        svld, allsvl, allfmt, anssets = mv.arrange_self_data(start_time, gap, 2, **kwas)
+        print (start_time+2*duration*i, duration)
+        tmp_start = start_time+2*(gap+duration)*i
+        svld, allsvl, allfmt, anssets = mv.arrange_self_data(tmp_start, gap, 2, **kwas)
 
         pids, vals = mv.self_match(svld)
         for pid, val in zip(pids, vals):
@@ -854,11 +885,11 @@ def plot_self_match(start_time, duration, fname="", loops=7, gap=0, thresh=10,
         data = sorted([(y, np.mean([z[0] for z in labels[k] if z[1] == y]),
                 len([z[0] for z in labels[k] if z[1] == y])) \
                 for y in set([v[1] for v in labels[k]])], key=lambda x: x[1])
-        df.overwrite(statedir+'self_closeness_'+k+fname+'.csv',
+        df.overwrite(plotsdir+'self_closeness_'+k+fname+'.csv',
                 df.list2col(data))
 
     print "saving data..."
-    outstr = df.overwrite(statedir+'self_closeness'+fname+'.csv',
+    outstr = df.overwrite(plotsdir+'self_closeness'+fname+'.csv',
             df.list2col(results))
 
 
@@ -901,7 +932,7 @@ def plot_examine_self_diff(start_time, fname="", loops=2, gap=0, thresh=10,
 
     print "saving data..."
     for i in xrange(0, len(vals)):
-        outstr = df.overwrite(statedir+labels[i]+'_self_jaccard.csv',
+        outstr = df.overwrite(plotsdir+labels[i]+'_self_jaccard.csv',
                 df.list2col(vals[i]))
 
 
@@ -946,11 +977,11 @@ def plot_examine_diff_diff(start_time, fname="", loops=2, gap=0,
 
     print "saving data..."
     for i in xrange(0, len(vals)):
-        outstr = df.overwrite(statedir+labels[i]+'_diff_jaccard.csv',
+        outstr = df.overwrite(plotsdir+labels[i]+'_diff_jaccard.csv',
                 df.list2col(vals[i]))
 
 
-def plot_measure_expansion(start_time, fname="", loops=30, gap=0, thresh=10,
+def plot_measure_expansion(start_time, fname="", loops=31, gap=0, thresh=10,
         **kwas):
     '''
     :param start_time: int indicating the earliest query the window should include
@@ -964,8 +995,6 @@ def plot_measure_expansion(start_time, fname="", loops=30, gap=0, thresh=10,
         line -> each line corresponds to one domain
     '''
 
-    kwas['start_time'] = start_time
-    kwas['return_ccache'] = False
     svld, allsvl, allfmt, anssets = mv.arrange_self_data(start_time, gap, loops, **kwas)
     keys = svld.keys()
 
@@ -994,20 +1023,24 @@ def plot_measure_expansion(start_time, fname="", loops=30, gap=0, thresh=10,
             vals[j+2].append(np.mean(domvals[dom][i]))
 
     fig, ax = plt.subplots(1, 1)
+    marker = ps.get_markers()
+    style = ps.get_styles()
     for i in xrange(0, len(vals)):
-        ax.plot(vals[i], label=labels[i])
-    ps.set_dim(fig, ax, xdim=13, ydim=7.5)
+        ax.plot(vals[i], label=labels[i], fillstyle='full', marker=next(marker),
+                markerfacecolor='white', markevery=6, linestyle=next(style))
+    ps.set_dim(fig, ax)
     plt.xlabel("cycle #")
     plt.ylabel("# new IPs / ans. size")
-    lgd = ps.legend_setup(ax, 4, "top center", True)
-    filename = plotsdir+"newvssize"+fname
+    ax.grid(b=True, which='major', color='b', linestyle='-')
+    lgd = ps.legend_setup(ax, 3, "top right", True)
+    filename = plotsdir+"expansion"+fname
     fig.savefig(filename+'.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
     fig.savefig(filename+'.pdf', bbox_extra_artists=(lgd,), bbox_inches='tight')
     plt.close(fig)
 
     print "saving data..."
     for i in xrange(0, len(vals)):
-        outstr = df.overwrite(statedir+labels[i]+'newvssize.csv',
+        outstr = df.overwrite(plotsdir+labels[i]+'newvssize.csv',
                 df.list2col(vals[i]))
 
 
