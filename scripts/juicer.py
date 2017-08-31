@@ -116,26 +116,39 @@ def prime_measurements(measurements, *fields):
 
 def filter_measurements(measurements, filters):
     out = list()
+    count = 0
     for meas in measurements:
+        count += 1
         good = True
         for key in filters:
             if key == 'start_time':
                 if key in meas:
-                    if filters[key] <= meas[key]:
+                    if meas[key] <= filters[key]:
                         continue
                     else:
+                        good = False
                         break
             elif key == 'participant_count' or key == 'stop_time':
                 if key in meas:
                     if meas[key] is not None and meas[key] != 'null':
-                        if filters[key] >= meas[key]:
+                        if meas[key] >= filters[key]:
                             continue
                         else:
+                            good = False
                             break
             elif 'time' in key or 'interval' in key:
                 # TODO handling times here is complicated;
                 # better to use list comprehensions on whole list later
                 pass
+            elif key in ['use_probe_resolver', 'resolve_on_probe']:
+                if 'use_probe_resolver' in meas:
+                    if meas['use_probe_resolver'] == filters[key]:
+                        continue
+                elif 'resolve_on_probe' in meas:
+                    if meas['resolve_on_probe'] == filters[key]:
+                        continue
+                good = False
+                break
             elif key not in meas:
                 good = False
                 break
@@ -143,11 +156,12 @@ def filter_measurements(measurements, filters):
                 if len(filters[key].intersection(meas[key]))<len(filters[key]):
                     good = False
                     break
-            elif meas[key] not in filters[key]:
-                good = False
-                break
+                elif meas[key] not in filters[key]:
+                    good = False
+                    break
         if good:
             out.append(meas)
+    print 'original count', count
     return out
 
 

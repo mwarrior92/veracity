@@ -729,11 +729,14 @@ def plot_closeness_same_desc(start_time, duration, fname="", xlim=[.6, 1.0], rma
 
     fig, ax = plt.subplots(1, 1)
     for i in xrange(0, len(vals)):
-        ecdf = ECDF(vals[i])
+        print type(vals[i][0])
+        print labels[i], "\n"
+        print len(vals[i])
+        ecdf = ECDF(np.array(vals[i]))
         x = list(ecdf.x)
         y = list(ecdf.y)
         ax.plot(x, y, label=labels[i])
-    ps.set_dim(fig, ax, xdim=13, ydim=7.5, xlim=xlim)
+    ps.set_dim(fig, ax, xdim=13, ydim=7.5)
     plt.xlabel("pairwise probe closeness")
     plt.ylabel("CDF of pairs")
     lgd = ps.legend_setup(ax, 4, "top center", True)

@@ -4,7 +4,6 @@ from warriorpy.shorthand import diriofile as df
 
 qfb = fb.query_filter('dns')
 qfb.set_time_window(60*60*24, 2017, 7, 21)
-qfb.manual_set(resolve_on_probe=True)
 
 qfs = qfb.get_filter()
 
@@ -19,11 +18,13 @@ msms = jcr.prime_measurements(msms, 'domain')
 rfb = fb.result_filter('dns')
 rfb.set_min_probes(1000)
 rfb.set_time_window(60*60*24, 2017, 7, 21)
+rfb.manual_set(use_probe_resolver=True)
 rfs = rfb.get_filter()
 
 print rfs
 print "filtering..."
 msms = jcr.filter_measurements(msms, rfs)
+print 'msms len', len(msms)
 
 
 g = None

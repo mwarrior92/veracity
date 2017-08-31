@@ -302,6 +302,9 @@ class smartvec:
                     self.vec[dom][ipm] += qaratio
             if len(self.vec[dom]) < 1:
                 del self.vec[dom]
+            else:
+                self.vec[dom] = dict(self.vec[dom])
+        self.vec = dict(self.vec)
         self.mask = mask
         self.ip = set()
         for ipset in d['probe_ip']:
@@ -324,19 +327,35 @@ class smartvec:
     def absorb(self, sv):
         # merge two smartvectors
         for dom in sv:
+            if dom not in self.vec:
+                self.vec[dom] = dict()
+            if dom not in self.inds:
+                self.inds[dom] = list()
             self.inds[dom] += sv.inds[dom]
             if dom in self.vec:
                 R1 = self.query_count[dom] / self.answer_count[dom]
             else:
                 R1 = 1
             R2 = sv.query_count[dom] / sv.answer_count[dom]
+            if dom not in self.query_count:
+                self.query_count[dom] = 0
             Q1 = self.query_count[dom]
+            if dom not in sv.query_count:
+                sv.query_count[dom] = 0
             Q2 = sv.query_count[dom]
+            if dom not in self.answer_count:
+                self.answer_count[dom] = 0
+            if dom not in sv.answer_count:
+                sv.answer_count[dom] = 0
             A = self.answer_count[dom]+sv.answer_count[dom]
             self.answer_count[dom] = A
             self.query_count[dom] = Q1 + Q2
             for ip in set(sv.vec[dom].keys()+self.vec[dom].keys()):
+                if ip not in self.vec[dom]:
+                    self.vec[dom][ip] = 0
                 self.vec[dom][ip] *= (R1*Q1/A)
+                if ip not in sv.vec[dom]:
+                    sv.vec[dom][ip] = 0
                 self.vec[dom][ip] += (sv.vec[dom][ip]*(R2*Q2/A))
         self.ip = self.ip.union(sv.ip)
         self.ldns = sorted(list(set(self.ldns+sv.ldns)))
@@ -499,15 +518,22 @@ def closeness(a, b):
         NOTE: each domain is normalized, so domains with a lot of IPs per query
         response won't skew the results
         '''
-        n = 0.0 # numerator
-        d = float(len(a)) # denominator
-        for dom in [j for j in a if j in b]:
-            domtotal = sum([a[dom][z] for z in a[dom]]+[b[dom][z] for z in b[dom]])
-            overlap = set(a[dom]).intersection(set(b[dom]))
-            aweight = [a[dom][z] for z in a[dom] if z in overlap]
-            bweight = [b[dom][z] for z in b[dom] if z in overlap]
-            n += sum(aweight+bweight)/domtotal
-        return n/d
+        v = list() # n = 0.0 # numerator
+        #d = float(len(a)) # denominator
+        for dom in vproc['domains']: # [j for j in a if j in b]:
+            if dom in a and dom in b:
+                domtotal = sum([a[dom][z] for z in a[dom]]+[b[dom][z] for z in b[dom]])
+                overlap = set(a[dom]).intersection(set(b[dom]))
+                aweight = [a[dom][z] for z in a[dom] if z in overlap]
+                bweight = [b[dom][z] for z in b[dom] if z in overlap]
+                v.append(sum(aweight+bweight)/domtotal)
+            else:
+                v.append(0)
+
+
+        c = vproc['nmf'].transform([v])
+        #return n/d
+        return sum(c[0])/float(len(v))
 
 
 def get_cl(svl, cc=None):
