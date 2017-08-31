@@ -518,22 +518,16 @@ def closeness(a, b):
         NOTE: each domain is normalized, so domains with a lot of IPs per query
         response won't skew the results
         '''
-        v = list() # n = 0.0 # numerator
-        #d = float(len(a)) # denominator
-        for dom in vproc['domains']: # [j for j in a if j in b]:
-            if dom in a and dom in b:
-                domtotal = sum([a[dom][z] for z in a[dom]]+[b[dom][z] for z in b[dom]])
-                overlap = set(a[dom]).intersection(set(b[dom]))
-                aweight = [a[dom][z] for z in a[dom] if z in overlap]
-                bweight = [b[dom][z] for z in b[dom] if z in overlap]
-                v.append(sum(aweight+bweight)/domtotal)
-            else:
-                v.append(0)
-
-
-        c = vproc['nmf'].transform([v])
-        #return n/d
-        return sum(c[0])/float(len(v))
+        n = 0.0 # numerator
+        d = float(len(a)) # denominator
+        for dom in [j for j in a if j in b]:
+            domtotal = sum([a[dom][z] for z in a[dom]] + \
+                           [b[dom][z] for z in b[dom]])
+            overlap = set(a[dom]).intersection(set(b[dom]))
+            aweight = [a[dom][z] for z in a[dom] if z in overlap]
+            bweight = [b[dom][z] for z in b[dom] if z in overlap]
+            n += sum(aweight+bweight)/domtotal
+        return n/d
 
 
 def get_cl(svl, cc=None):
